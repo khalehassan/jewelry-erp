@@ -22,9 +22,7 @@ class JewelryItem(models.Model):
     karat = models.IntegerField(choices=Karat.choices, default=Karat.K21)
     weight_grams = models.DecimalField(max_digits=8, decimal_places=3)
     stone_details = models.CharField(max_length=200, blank=True)
-    making_charge_per_gram = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2)
-    selling_price = models.DecimalField(max_digits=12, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -32,11 +30,11 @@ class JewelryItem(models.Model):
         return f"{self.name} — {self.karat}K, {self.weight_grams}g"
 
     @property
-    def calculated_price(self):
+    def gold_value(self):
         latest_rate = GoldRate.objects.filter(karat=self.karat).order_by("-recorded_at").first()
         if latest_rate is None:
             return None
-        return self.weight_grams * (latest_rate.price_per_gram + self.making_charge_per_gram)
+        return self.weight_grams * latest_rate.price_per_gram
 
 
 class GoldRate(models.Model):

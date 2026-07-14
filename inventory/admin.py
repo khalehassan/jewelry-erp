@@ -5,17 +5,16 @@ from .models import JewelryItem, GoldRate
 @admin.register(JewelryItem)
 class JewelryItemAdmin(admin.ModelAdmin):
     list_display = ("name", "category", "karat", "weight_grams",
-                    "making_charge_per_gram", "calculated_price_display",
-                    "selling_price", "quantity")
+                    "gold_value_display", "cost_price", "quantity")
     list_filter = ("category", "karat")
     search_fields = ("name", "stone_details")
 
-    @admin.display(description="Calculated price (EGP)")
-    def calculated_price_display(self, obj):
-        price = obj.calculated_price
-        if price is None:
+    @admin.display(description="Gold value (EGP)")
+    def gold_value_display(self, obj):
+        value = obj.gold_value
+        if value is None:
             return "— set gold rate —"
-        return f"{price:,.2f}"
+        return f"{value:,.2f}"
 
 
 @admin.register(GoldRate)

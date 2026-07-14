@@ -1,6 +1,8 @@
 from decimal import Decimal
 
 from django.db import models
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
 
 from inventory.models import JewelryItem
 
@@ -33,6 +35,7 @@ class SaleLine(models.Model):
     sale = models.ForeignKey(Sale, related_name="lines", on_delete=models.CASCADE)
     item = models.ForeignKey(JewelryItem, on_delete=models.PROTECT)
     gold_price_per_gram = models.DecimalField(max_digits=10, decimal_places=2)
+    making_charge_per_gram = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=1)
 
     def __str__(self):
@@ -40,5 +43,21 @@ class SaleLine(models.Model):
 
     @property
     def line_total(self):
-        price_per_piece = self.item.weight_grams * (self.gold_price_per_gram + self.item.making_charge_per_gram)
+        price_per_piece = self.item.weight_grams * (self.gold_price_per_gram + self.making_charge_per_gram)
         return price_per_piece * self.quantity
+
+
+# --- Signals: keep stock in sync with sales ---
+@receiver(post_save, sender=SaleLine)
+def reduce_stock_on_sale(sender, instance, created, **kwargs):
+    if created:
+        item = instance.item
+        item.quantity = item.quantity - instance.quantity
+        item.save()
+
+
+@receiver(post_delete, sender=SaleLine)
+def restore_stock_on_delete(sender, instance, **kwargs):
+    item = instance.item
+    item.quantity = item.quantity + instance.quantity
+    item.save()

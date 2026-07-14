@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>New Sale — Jewelry ERP</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
+        h1 { font-size: 22px; }
+        label { display: block; margin: 14px 0 4px; font-weight: 600; }
+        select, input { width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box; }
+        .total { margin-top: 24px; font-size: 26px; font-weight: 700; }
+        .total span { color: #a9812f; }
+    </style>
+</head>
+<body>
+    <h1>New Sale — live line calculator</h1>
+
+    <label for="item">Item</label>
+    <select id="item">
+        {% for item in items %}
+        <option value="{{ item.id }}" data-weight="{{ item.weight_grams }}">
+            {{ item.name }} — {{ item.karat }}K, {{ item.weight_grams }}g
+        </option>
+        {% endfor %}
+    </select>
+
+    <label for="gold">Gold price per gram (EGP)</label>
+    <input type="number" id="gold" value="0" step="0.01">
+
+    <label for="making">Making charge per gram (EGP)</label>
+    <input type="number" id="making" value="0" step="0.01">
+
+    <label for="qty">Quantity</label>
+    <input type="number" id="qty" value="1" step="1">
+
+    <div class="total">Line total: <span id="total">0.00</span> EGP</div>
+
+    <script>
+        const itemEl = document.getElementById("item");
+        const goldEl = document.getElementById("gold");
+        const makingEl = document.getElementById("making");
+        const qtyEl = document.getElementById("qty");
+        const totalEl = document.getElementById("total");
+
+        function recalculate() {
+            const selected = itemEl.options[itemEl.selectedIndex];
+            const weight = parseFloat(selected.dataset.weight) || 0;
+            const gold = parseFloat(goldEl.value) || 0;
+            const making = parseFloat(makingEl.value) || 0;
+            const qty = parseInt(qtyEl.value) || 0;
+            const total = weight * (gold + making) * qty;
+            totalEl.textContent = total.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+
+        [itemEl, goldEl, makingEl, qtyEl].forEach(el => el.addEventListener("input", recalculate));
+        recalculate();
+    </script>
+</body>
+</html>
