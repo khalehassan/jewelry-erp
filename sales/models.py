@@ -6,12 +6,18 @@ from inventory.models import JewelryItem
 
 
 class Sale(models.Model):
-    customer_name = models.CharField(max_length=120, blank=True)
+    customer = models.ForeignKey(
+        "customers.Customer",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sales",
+    )
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        who = self.customer_name or "Walk-in customer"
+        who = self.customer.name if self.customer else "Walk-in customer"
         return f"Sale #{self.pk} — {who}"
 
     @property
