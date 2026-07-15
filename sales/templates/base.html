@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Jewelry ERP{% endblock %}</title>
+    <style>
+        :root {
+            --bg:#f4f1ea; --panel:#ffffff; --ink:#241f18; --muted:#6f6558;
+            --line:#e5ddce; --gold:#a9812f; --gold-2:#c79a3e;
+            --good:#1e7e34; --good-bg:#e7f4ea; --good-line:#34a853;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg:#15120d; --panel:#1e1a14; --ink:#f0e9dc; --muted:#a99f8d;
+                --line:#322c22; --gold:#d3a74a; --gold-2:#e6bd5c;
+                --good:#8fdcab; --good-bg:#16281c; --good-line:#2f6b45;
+            }
+        }
+        * { box-sizing:border-box; }
+        body { margin:0; font-family:-apple-system,system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); line-height:1.5; }
+        .topbar { background:var(--panel); border-bottom:1px solid var(--line); }
+        .topbar-inner { max-width:960px; margin:0 auto; padding:0 20px; height:60px; display:flex; align-items:center; justify-content:space-between; }
+        .brand { font-weight:800; font-size:18px; text-decoration:none; color:var(--ink); display:flex; align-items:center; gap:9px; }
+        .brand .gem { width:14px; height:14px; transform:rotate(45deg); background:linear-gradient(135deg,var(--gold-2),var(--gold)); border-radius:3px; }
+        .nav a { text-decoration:none; color:var(--muted); font-weight:600; font-size:14px; margin-left:18px; }
+        .nav a:hover { color:var(--ink); }
+        .page { max-width:960px; margin:0 auto; padding:28px 20px 60px; }
+
+        /* shared components (the design system) */
+        .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:22px; }
+        .btn { display:inline-block; background:var(--gold); color:#fff; border:none; text-decoration:none; padding:11px 20px; border-radius:8px; font-weight:700; font-size:15px; cursor:pointer; }
+        .btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+        .msg { background:var(--good-bg); border:1px solid var(--good-line); color:var(--good); padding:12px 14px; border-radius:8px; margin-bottom:16px; }
+        h1 { font-size:24px; margin:0 0 18px; }
+        h2 { font-size:16px; margin:0 0 10px; }
+        label { display:block; margin:14px 0 4px; font-weight:600; font-size:14px; }
+        select, input { padding:9px; font-size:15px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--ink); }
+        select:focus, input:focus { outline:2px solid var(--gold); outline-offset:1px; }
+        .head-row { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; }
+        .sub { color:var(--muted); font-size:14px; }
+        table.list { width:100%; border-collapse:collapse; }
+        table.list td { padding:9px 0; border-bottom:1px solid var(--line); }
+        table.list tr:last-child td { border-bottom:none; }
+        table.list td.num { text-align:right; font-weight:700; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-inner">
+            <a class="brand" href="{% url 'sales:dashboard' %}"><span class="gem"></span> Jewelry ERP</a>
+            <nav class="nav">
+                <a href="{% url 'sales:dashboard' %}">Dashboard</a>
+                <a href="{% url 'sales:new_sale' %}">New Sale</a>
+                <a href="/admin/">Admin</a>
+            </nav>
+        </div>
+    </div>
+    <main class="page">
+        {% if messages %}
+            {% for message in messages %}<div class="msg">{{ message }}</div>{% endfor %}
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

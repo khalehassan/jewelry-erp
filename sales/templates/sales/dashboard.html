@@ -1,74 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Dashboard — Jewelry ERP</title>
-    <style>
-        :root { --gold: #a9812f; --ink: #241f18; --muted: #6b6153; --line: #e6e0d4; --bg: #f7f4ee; }
-        * { box-sizing: border-box; }
-        body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--ink); }
-        .wrap { max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; }
-        header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
-        h1 { font-size: 24px; margin: 0; }
-        .date { color: var(--muted); font-size: 14px; margin-top: 4px; }
-        .nav a { display: inline-block; margin-left: 8px; padding: 9px 16px; background: var(--gold); color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; }
-        .nav a.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 28px; }
-        .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
-        .card .label { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
-        .card .value { font-size: 26px; font-weight: 800; margin-top: 8px; }
-        .card .value.gold { color: var(--gold); }
-        .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-top: 24px; }
-        .panel h2 { font-size: 16px; margin: 0 0 8px; }
-        table { width: 100%; border-collapse: collapse; }
-        td { padding: 9px 0; border-bottom: 1px solid var(--line); }
-        tr:last-child td { border-bottom: none; }
-        td:last-child { text-align: right; font-weight: 700; }
-        .empty { color: var(--muted); }
-    </style>
-</head>
-<body>
-    <div class="wrap">
-        <header>
-            <div>
-                <h1>Jewelry ERP — Dashboard</h1>
-                <div class="date">{{ today }}</div>
-            </div>
-            <div class="nav">
-                <a href="{% url 'sales:new_sale' %}">+ New Sale</a>
-                <a class="ghost" href="/admin/">Admin</a>
-            </div>
-        </header>
+{% extends "base.html" %}
+{% block title %}Dashboard — Jewelry ERP{% endblock %}
 
-        <div class="grid">
-            <div class="card">
-                <div class="label">Sales today</div>
-                <div class="value">{{ todays_count }}</div>
-            </div>
-            <div class="card">
-                <div class="label">Revenue today</div>
-                <div class="value gold">{{ todays_revenue|floatformat:2 }} EGP</div>
-            </div>
-            <div class="card">
-                <div class="label">Profit today</div>
-                <div class="value">{{ todays_profit|floatformat:2 }} EGP</div>
-            </div>
-            <div class="card">
-                <div class="label">Stock value (gold)</div>
-                <div class="value">{{ stock_value|floatformat:2 }} EGP</div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <h2>Best sellers</h2>
-            <table>
-                {% for name, qty in best_sellers %}
-                <tr><td>{{ name }}</td><td>{{ qty }} sold</td></tr>
-                {% empty %}
-                <tr><td class="empty">No sales yet.</td></tr>
-                {% endfor %}
-            </table>
-        </div>
+{% block content %}
+<div class="head-row">
+    <div>
+        <h1 style="margin-bottom:2px;">Dashboard</h1>
+        <div class="sub">{{ today }}</div>
     </div>
-</body>
-</html>
+    <a class="btn" href="{% url 'sales:new_sale' %}">+ New Sale</a>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-top:24px;">
+    <div class="card">
+        <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Sales today</div>
+        <div style="font-size:28px; font-weight:800; margin-top:8px;">{{ todays_count }}</div>
+    </div>
+    <div class="card">
+        <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Revenue today</div>
+        <div style="font-size:28px; font-weight:800; margin-top:8px; color:var(--gold);">{{ todays_revenue|floatformat:2 }} EGP</div>
+    </div>
+    <div class="card">
+        <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Profit today</div>
+        <div style="font-size:28px; font-weight:800; margin-top:8px;">{{ todays_profit|floatformat:2 }} EGP</div>
+    </div>
+    <div class="card">
+        <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Stock value (gold)</div>
+        <div style="font-size:28px; font-weight:800; margin-top:8px;">{{ stock_value|floatformat:2 }} EGP</div>
+    </div>
+</div>
+
+<div class="card" style="margin-top:22px;">
+    <h2>Best sellers</h2>
+    <table class="list">
+        {% for name, qty in best_sellers %}
+        <tr><td>{{ name }}</td><td class="num">{{ qty }} sold</td></tr>
+        {% empty %}
+        <tr><td class="sub">No sales yet.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

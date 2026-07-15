@@ -9,6 +9,9 @@ class JewelryItemAdmin(admin.ModelAdmin):
     list_filter = ("category", "karat")
     search_fields = ("name", "stone_details")
 
+    def has_add_permission(self, request):
+        return False   # items now come only from Purchases
+
     @admin.display(description="Gold value (EGP)")
     def gold_value_display(self, obj):
         value = obj.gold_value
