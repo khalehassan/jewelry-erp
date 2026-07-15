@@ -4,91 +4,146 @@
     <meta charset="utf-8">
     <title>New Sale — Jewelry ERP</title>
     <style>
-        body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
-        h1 { font-size: 22px; }
-        label { display: block; margin: 14px 0 4px; font-weight: 600; }
-        select, input { width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box; }
-        .total { margin-top: 18px; font-size: 20px; font-weight: 700; }
-        .grand { font-size: 26px; }
-        .total span { color: #a9812f; }
-        button { margin-top: 24px; padding: 12px 22px; font-size: 16px; font-weight: 700; background: #a9812f; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-        .msg { background: #e7f4ea; border: 1px solid #34a853; color: #1e7e34; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+        :root { --gold:#a9812f; --ink:#241f18; --muted:#6b6153; --line:#e6e0d4; --bg:#f7f4ee; }
+        * { box-sizing:border-box; }
+        body { font-family:-apple-system,system-ui,sans-serif; margin:0; background:var(--bg); color:var(--ink); }
+        .wrap { max-width:860px; margin:0 auto; padding:28px 20px 60px; }
+        a.back { color:var(--muted); text-decoration:none; font-size:14px; }
+        h1 { font-size:24px; margin:6px 0 18px; }
+        label { display:block; margin:14px 0 4px; font-weight:600; }
+        select, input { padding:8px; font-size:15px; border:1px solid var(--line); border-radius:6px; }
+        .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:22px; }
+        table { width:100%; border-collapse:collapse; margin-top:8px; }
+        th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:8px 6px; }
+        td { padding:6px; }
+        td.lineTotal { text-align:right; font-weight:700; white-space:nowrap; }
+        table select, table input { width:100%; }
+        .removeBtn { background:#fff; border:1px solid var(--line); color:#b33; border-radius:6px; padding:6px 10px; cursor:pointer; font-weight:700; }
+        .addBtn { margin-top:10px; background:#fff; border:1px dashed var(--gold); color:var(--gold); padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:700; }
+        .totals { margin-top:22px; text-align:right; }
+        .totals div { margin:6px 0; font-size:16px; }
+        .totals .grand { font-size:26px; font-weight:800; }
+        .totals span { color:var(--gold); font-weight:800; }
+        button.save { margin-top:20px; padding:12px 24px; font-size:16px; font-weight:700; background:var(--gold); color:#fff; border:none; border-radius:6px; cursor:pointer; }
+        .msg { background:#e7f4ea; border:1px solid #34a853; color:#1e7e34; padding:12px; border-radius:6px; margin-bottom:16px; }
     </style>
 </head>
 <body>
-    <h1>New Sale</h1>
+    <div class="wrap">
+        <a class="back" href="{% url 'sales:dashboard' %}">← Dashboard</a>
+        <h1>New Sale</h1>
 
-    {% if messages %}
-        {% for message in messages %}
-        <div class="msg">{{ message }}</div>
-        {% endfor %}
-    {% endif %}
+        {% if messages %}
+            {% for message in messages %}<div class="msg">{{ message }}</div>{% endfor %}
+        {% endif %}
 
-    <form method="post">
-        {% csrf_token %}
+        <form method="post" class="card">
+            {% csrf_token %}
 
-        <label for="customer">Customer</label>
-        <select id="customer" name="customer">
-            <option value="">Walk-in customer</option>
-            {% for c in customers %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
-            {% endfor %}
-        </select>
+            <label for="customer">Customer</label>
+            <select id="customer" name="customer">
+                <option value="">Walk-in customer</option>
+                {% for c in customers %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
 
-        <label for="item">Item</label>
-        <select id="item" name="item">
-            {% for item in items %}
-            <option value="{{ item.id }}" data-weight="{{ item.weight_grams }}">
-                {{ item.name }} — {{ item.karat }}K, {{ item.weight_grams }}g
-            </option>
-            {% endfor %}
-        </select>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:38%">Item</th>
+                        <th>Gold /g</th>
+                        <th>Making /g</th>
+                        <th style="width:80px">Qty</th>
+                        <th style="text-align:right">Line total</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="lines">
+                    <tr class="line">
+                        <td>
+                            <select name="item" class="item">
+                                {% for item in items %}
+                                <option value="{{ item.id }}" data-weight="{{ item.weight_grams }}">
+                                    {{ item.name }} — {{ item.karat }}K, {{ item.weight_grams }}g
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="number" name="gold" class="gold" value="0" step="0.01"></td>
+                        <td><input type="number" name="making" class="making" value="0" step="0.01"></td>
+                        <td><input type="number" name="qty" class="qty" value="1" step="1"></td>
+                        <td class="lineTotal">0.00</td>
+                        <td><button type="button" class="removeBtn">✕</button></td>
+                    </tr>
+                </tbody>
+            </table>
+            <button type="button" class="addBtn" id="addBtn">+ Add item</button>
 
-        <label for="gold">Gold price per gram (EGP)</label>
-        <input type="number" id="gold" name="gold" value="0" step="0.01">
+            <label for="discount">Discount (EGP)</label>
+            <input id="discount" name="discount" type="number" value="0" step="0.01" style="width:180px">
 
-        <label for="making">Making charge per gram (EGP)</label>
-        <input type="number" id="making" name="making" value="0" step="0.01">
+            <div class="totals">
+                <div>Subtotal: <span id="subtotal">0.00</span> EGP</div>
+                <div class="grand">Total: <span id="grandTotal">0.00</span> EGP</div>
+            </div>
 
-        <label for="qty">Quantity</label>
-        <input type="number" id="qty" name="qty" value="1" step="1">
-
-        <label for="discount">Discount (EGP)</label>
-        <input type="number" id="discount" name="discount" value="0" step="0.01">
-
-        <div class="total">Line total: <span id="lineTotal">0.00</span> EGP</div>
-        <div class="total grand">Total after discount: <span id="grandTotal">0.00</span> EGP</div>
-
-        <button type="submit">Save sale</button>
-    </form>
+            <button type="submit" class="save">Save sale</button>
+        </form>
+    </div>
 
     <script>
-        const itemEl = document.getElementById("item");
-        const goldEl = document.getElementById("gold");
-        const makingEl = document.getElementById("making");
-        const qtyEl = document.getElementById("qty");
+        const linesEl = document.getElementById("lines");
         const discountEl = document.getElementById("discount");
-        const lineTotalEl = document.getElementById("lineTotal");
+        const subtotalEl = document.getElementById("subtotal");
         const grandTotalEl = document.getElementById("grandTotal");
+        const addBtn = document.getElementById("addBtn");
 
         function fmt(n) {
-            return n.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            return n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
         }
 
-        function recalculate() {
-            const selected = itemEl.options[itemEl.selectedIndex];
-            const weight = parseFloat(selected.dataset.weight) || 0;
-            const gold = parseFloat(goldEl.value) || 0;
-            const making = parseFloat(makingEl.value) || 0;
-            const qty = parseInt(qtyEl.value) || 0;
+        function recalc() {
+            let subtotal = 0;
+            linesEl.querySelectorAll(".line").forEach(row => {
+                const sel = row.querySelector(".item");
+                const weight = parseFloat(sel.options[sel.selectedIndex].dataset.weight) || 0;
+                const gold = parseFloat(row.querySelector(".gold").value) || 0;
+                const making = parseFloat(row.querySelector(".making").value) || 0;
+                const qty = parseInt(row.querySelector(".qty").value) || 0;
+                const lineTotal = weight * (gold + making) * qty;
+                row.querySelector(".lineTotal").textContent = fmt(lineTotal);
+                subtotal += lineTotal;
+            });
             const discount = parseFloat(discountEl.value) || 0;
-            const lineTotal = weight * (gold + making) * qty;
-            lineTotalEl.textContent = fmt(lineTotal);
-            grandTotalEl.textContent = fmt(lineTotal - discount);
+            subtotalEl.textContent = fmt(subtotal);
+            grandTotalEl.textContent = fmt(subtotal - discount);
         }
 
-        [itemEl, goldEl, makingEl, qtyEl, discountEl].forEach(el => el.addEventListener("input", recalculate));
-        recalculate();
+        function addLine() {
+            const firstRow = linesEl.querySelector(".line");
+            const newRow = firstRow.cloneNode(true);
+            newRow.querySelector(".item").selectedIndex = 0;
+            newRow.querySelector(".gold").value = 0;
+            newRow.querySelector(".making").value = 0;
+            newRow.querySelector(".qty").value = 1;
+            newRow.querySelector(".lineTotal").textContent = "0.00";
+            linesEl.appendChild(newRow);
+        }
+
+        linesEl.addEventListener("input", recalc);
+        linesEl.addEventListener("change", recalc);
+        linesEl.addEventListener("click", function (e) {
+            if (e.target.classList.contains("removeBtn")) {
+                if (linesEl.querySelectorAll(".line").length > 1) {
+                    e.target.closest(".line").remove();
+                    recalc();
+                }
+            }
+        });
+        discountEl.addEventListener("input", recalc);
+        addBtn.addEventListener("click", addLine);
+        recalc();
     </script>
 </body>
 </html>
