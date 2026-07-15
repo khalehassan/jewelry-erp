@@ -1,7 +1,9 @@
+from datetime import date
 from decimal import Decimal
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.utils import timezone
 
 from inventory.models import JewelryItem
 from customers.models import Customer
@@ -27,3 +29,41 @@ def new_sale(request):
     items = JewelryItem.objects.all()
     customers = Customer.objects.all()
     return render(request, "sales/new_sale.html", {"items": items, "customers": customers})
+
+
+def dashboard(request):
+    today = timezone.localdate()
+
+    # Today's sales
+    todays_sales = Sale.objects.filter(created_at__date=today)
+    todays_count = todays_sales.count()
+    todays_revenue = sum((s.total for s in todays_sales), Decimal("0.00"))
+
+    # Today's profit = revenue - what those items cost you
+    todays_cost = Decimal("0.00")
+    for s in todays_sales:
+        for line in s.lines.all():
+            todays_cost += line.item.cost_price * line.quantity
+    todays_profit = todays_revenue - todays_cost
+
+    # Total stock value at the latest gold rate
+    stock_value = Decimal("0.00")
+    for item in JewelryItem.objects.all():
+        value = item.gold_value
+        if value is not None:
+            stock_value += value * item.quantity
+
+    # Best sellers (by quantity sold, all time)
+    sold = {}
+    for line in SaleLine.objects.all():
+        sold[line.item.name] = sold.get(line.item.name, 0) + line.quantity
+    best_sellers = sorted(sold.items(), key=lambda pair: pair[1], reverse=True)[:5]
+
+    return render(request, "sales/dashboard.html", {
+        "today": today,
+        "todays_count": todays_count,
+        "todays_revenue": todays_revenue,
+        "todays_profit": todays_profit,
+        "stock_value": stock_value,
+        "best_sellers": best_sellers,
+    })
