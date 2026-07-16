@@ -14,6 +14,7 @@ def new_sale(request):
         sale = Sale.objects.create(
             customer_id=request.POST.get("customer") or None,
             discount=Decimal(request.POST.get("discount") or 0),
+            on_credit=bool(request.POST.get("on_credit")),
         )
         item_ids = request.POST.getlist("item")
         golds = request.POST.getlist("gold")
@@ -29,6 +30,7 @@ def new_sale(request):
                 making_charge_per_gram=Decimal(making or 0),
                 quantity=int(qty or 1),
             )
+        sale.post_to_ledger()
         messages.success(request, f"Sale #{sale.pk} saved — total {sale.total:,.2f} EGP")
         return redirect("sales:new_sale")
 

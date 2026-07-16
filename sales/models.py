@@ -8,14 +8,10 @@ from inventory.models import JewelryItem
 
 
 class Sale(models.Model):
-    customer = models.ForeignKey(
-        "customers.Customer",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="sales",
-    )
+    customer = models.ForeignKey("customers.Customer", on_delete=models.PROTECT, null=True, blank=True, related_name="sales")
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    on_credit = models.BooleanField(default=False, help_text="Sold on credit (customer owes you)")
+    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -29,6 +25,23 @@ class Sale(models.Model):
     @property
     def total(self):
         return self.subtotal - self.discount
+
+    def post_to_ledger(self):
+        if self.journal_entry_id or not self.lines.exists():
+            return
+        from accounting.services import create_entry
+        total = self.total
+        cost = sum((l.item.cost_price * l.quantity for l in self.lines.all()), Decimal("0.00"))
+        receivable = "1100" if self.on_credit else "1000"   # AR if credit, else Cash
+        lines = [
+            (receivable, total, Decimal("0.00")),   # Dr Cash / AR
+            ("4000", Decimal("0.00"), total),       # Cr Sales Revenue
+            ("5000", cost, Decimal("0.00")),        # Dr COGS
+            ("1200", Decimal("0.00"), cost),        # Cr Inventory
+        ]
+        entry = create_entry(self.created_at.date(), f"Sale #{self.pk}", lines)
+        self.journal_entry = entry
+        self.save(update_fields=["journal_entry"])
 
 
 class SaleLine(models.Model):
@@ -47,7 +60,6 @@ class SaleLine(models.Model):
         return price_per_piece * self.quantity
 
 
-# --- Signals: keep stock in sync with sales ---
 @receiver(post_save, sender=SaleLine)
 def reduce_stock_on_sale(sender, instance, created, **kwargs):
     if created:

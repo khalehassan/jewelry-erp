@@ -17,9 +17,13 @@ class SaleLineInline(admin.TabularInline):
 @admin.register(Sale)
 class SaleAdmin(admin.ModelAdmin):
     inlines = [SaleLineInline]
-    list_display = ("id", "customer", "created_at", "total_display")
-    list_filter = ("customer",)
+    list_display = ("id", "customer", "on_credit", "created_at", "total_display")
+    list_filter = ("customer", "on_credit")
     readonly_fields = ("subtotal_display", "total_display", "created_at")
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.post_to_ledger()
 
     @admin.display(description="Subtotal (EGP)")
     def subtotal_display(self, obj):
