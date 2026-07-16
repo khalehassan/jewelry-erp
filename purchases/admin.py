@@ -28,6 +28,10 @@ class PurchaseAdmin(admin.ModelAdmin):
     list_filter = ("supplier", "on_credit")
     readonly_fields = ("total_display", "created_at")
 
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.post_to_ledger()
+
     @admin.display(description="Total (EGP)")
     def total_display(self, obj):
         if obj.pk is None:
