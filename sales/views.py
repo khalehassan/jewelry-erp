@@ -15,16 +15,13 @@ def new_sale(request):
             customer_id=request.POST.get("customer") or None,
             discount=Decimal(request.POST.get("discount") or 0),
         )
-        # Each of these is a LIST — one entry per row on the page
         item_ids = request.POST.getlist("item")
         golds = request.POST.getlist("gold")
         makings = request.POST.getlist("making")
         qtys = request.POST.getlist("qty")
-
-        # zip pairs them up row-by-row
         for item_id, gold, making, qty in zip(item_ids, golds, makings, qtys):
             if not item_id:
-                continue  # skip empty rows
+                continue
             SaleLine.objects.create(
                 sale=sale,
                 item_id=item_id,
@@ -32,7 +29,6 @@ def new_sale(request):
                 making_charge_per_gram=Decimal(making or 0),
                 quantity=int(qty or 1),
             )
-
         messages.success(request, f"Sale #{sale.pk} saved — total {sale.total:,.2f} EGP")
         return redirect("sales:new_sale")
 
@@ -55,9 +51,7 @@ def dashboard(request):
 
     stock_value = Decimal("0.00")
     for item in JewelryItem.objects.all():
-        value = item.gold_value
-        if value is not None:
-            stock_value += value * item.quantity
+        stock_value += item.cost_price * item.quantity
 
     sold = {}
     for line in SaleLine.objects.all():
