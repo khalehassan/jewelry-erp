@@ -26,7 +26,7 @@ class PurchaseAdmin(admin.ModelAdmin):
     inlines = [PurchaseLineInline]
     list_display = ("id", "supplier", "on_credit", "created_at", "total_display")
     list_filter = ("supplier", "on_credit")
-    readonly_fields = ("total_display", "created_at")
+    readonly_fields = ("total_display", "created_at", "journal_entry")
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)

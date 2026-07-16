@@ -19,7 +19,7 @@ class SaleAdmin(admin.ModelAdmin):
     inlines = [SaleLineInline]
     list_display = ("id", "customer", "on_credit", "created_at", "total_display")
     list_filter = ("customer", "on_credit")
-    readonly_fields = ("subtotal_display", "total_display", "created_at")
+    readonly_fields = ("subtotal_display", "total_display", "created_at", "journal_entry")
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
