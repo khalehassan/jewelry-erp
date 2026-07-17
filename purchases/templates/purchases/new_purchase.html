@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}New Purchase — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>
+    .scroll { overflow-x: auto; }
+    table.linetable { width:100%; border-collapse:collapse; margin-top:8px; min-width:920px; }
+    table.linetable th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:8px 6px; white-space:nowrap; }
+    table.linetable td { padding:5px; }
+    table.linetable td.lineTotal { text-align:right; font-weight:700; white-space:nowrap; }
+    table.linetable input, table.linetable select { width:100%; min-width:72px; }
+    table.linetable input.wide { min-width:130px; }
+    .removeBtn { background:var(--panel); border:1px solid var(--line); color:#c0392b; border-radius:6px; padding:6px 10px; cursor:pointer; font-weight:700; }
+    .addBtn { margin-top:10px; background:transparent; border:1px dashed var(--gold); color:var(--gold); padding:8px 14px; border-radius:8px; cursor:pointer; font-weight:700; }
+    .totals { margin-top:22px; text-align:right; }
+    .totals .grand { font-size:26px; font-weight:800; }
+    .totals span { color:var(--gold); font-weight:800; }
+    .checkline { display:flex; align-items:center; gap:8px; margin-top:14px; }
+    .checkline input { width:auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>New Purchase</h1>
+
+<form method="post" class="card">
+    {% csrf_token %}
+
+    <label for="supplier">Supplier</label>
+    <select id="supplier" name="supplier">
+        <option value="">— No supplier —</option>
+        {% for s in suppliers %}
+        <option value="{{ s.id }}">{{ s.name }}</option>
+        {% endfor %}
+    </select>
+
+    <div class="scroll">
+        <table class="linetable">
+            <thead>
+                <tr>
+                    <th>Barcode</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Karat</th>
+                    <th>Weight (g)</th>
+                    <th>Stone</th>
+                    <th>Location</th>
+                    <th>Unit cost</th>
+                    <th>Qty</th>
+                    <th style="text-align:right">Line total</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="lines">
+                <tr class="line">
+                    <td><input type="text" name="barcode" placeholder="scan / blank"></td>
+                    <td><input type="text" name="name" class="wide" placeholder="e.g. Gold Ring"></td>
+                    <td>
+                        <select name="category">
+                            {% for value, label in categories %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td>
+                        <select name="karat">
+                            {% for value, label in karats %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td><input type="number" name="weight" value="0" step="0.001"></td>
+                    <td><input type="text" name="stone" placeholder="optional"></td>
+                    <td>
+                        <select name="location">
+                            {% for value, label in locations %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td><input type="number" name="cost" class="cost" value="0" step="0.01"></td>
+                    <td><input type="number" name="qty" class="qty" value="1" step="1"></td>
+                    <td class="lineTotal">0.00</td>
+                    <td><button type="button" class="removeBtn">✕</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <button type="button" class="addBtn" id="addBtn">+ Add item</button>
+
+    <label class="checkline"><input type="checkbox" name="on_credit"> On credit (you owe the supplier)</label>
+
+    <div class="totals">
+        <div class="grand">Total: <span id="grandTotal">0.00</span> EGP</div>
+    </div>
+
+    <button type="submit" class="btn" style="margin-top:20px;">Save purchase</button>
+</form>
+
+<script>
+    const linesEl = document.getElementById("lines");
+    const grandTotalEl = document.getElementById("grandTotal");
+    const addBtn = document.getElementById("addBtn");
+
+    function fmt(n) {
+        return n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+
+    function recalc() {
+        let grand = 0;
+        linesEl.querySelectorAll(".line").forEach(row => {
+            const cost = parseFloat(row.querySelector(".cost").value) || 0;
+            const qty = parseInt(row.querySelector(".qty").value) || 0;
+            const lineTotal = cost * qty;
+            row.querySelector(".lineTotal").textContent = fmt(lineTotal);
+            grand += lineTotal;
+        });
+        grandTotalEl.textContent = fmt(grand);
+    }
+
+    function addLine() {
+        const firstRow = linesEl.querySelector(".line");
+        const newRow = firstRow.cloneNode(true);
+        newRow.querySelectorAll("input").forEach(inp => {
+            if (inp.name === "qty") inp.value = 1;
+            else if (inp.type === "number") inp.value = 0;
+            else inp.value = "";
+        });
+        newRow.querySelectorAll("select").forEach(sel => sel.selectedIndex = 0);
+        newRow.querySelector(".lineTotal").textContent = "0.00";
+        linesEl.appendChild(newRow);
+    }
+
+    linesEl.addEventListener("input", recalc);
+    linesEl.addEventListener("click", function (e) {
+        if (e.target.classList.contains("removeBtn")) {
+            if (linesEl.querySelectorAll(".line").length > 1) {
+                e.target.closest(".line").remove();
+                recalc();
+            }
+        }
+    });
+    addBtn.addEventListener("click", addLine);
+    recalc();
+</script>
+{% endblock %}
