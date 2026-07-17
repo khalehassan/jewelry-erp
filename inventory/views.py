@@ -11,7 +11,17 @@ from accounting.services import create_entry
 from .models import JewelryItem
 
 
-@login_required
+def owner_required(view):
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_staff:
+            messages.error(request, "You don't have permission to open that page.")
+            return redirect("sales:dashboard")
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
+@owner_required
 def import_stock(request):
     if request.method == "POST" and request.FILES.get("file"):
         decoded = request.FILES["file"].read().decode("utf-8-sig")

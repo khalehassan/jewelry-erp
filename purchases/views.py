@@ -8,7 +8,17 @@ from inventory.models import JewelryItem
 from .models import Supplier, Purchase, PurchaseLine
 
 
-@login_required
+def owner_required(view):
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_staff:
+            messages.error(request, "You don't have permission to open that page.")
+            return redirect("sales:dashboard")
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
+@owner_required
 def new_purchase(request):
     if request.method == "POST":
         purchase = Purchase.objects.create(
