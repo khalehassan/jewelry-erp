@@ -2,11 +2,13 @@ from decimal import Decimal
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 
 from inventory.models import JewelryItem
 from .models import Supplier, Purchase, PurchaseLine
 
 
+@login_required
 def new_purchase(request):
     if request.method == "POST":
         purchase = Purchase.objects.create(
@@ -27,7 +29,7 @@ def new_purchase(request):
             barcodes, names, categories, karats, weights, stones, locations, costs, qtys
         ):
             if not name.strip():
-                continue  # skip blank rows
+                continue
             PurchaseLine.objects.create(
                 purchase=purchase,
                 barcode=barcode.strip(),

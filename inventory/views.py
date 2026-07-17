@@ -4,12 +4,14 @@ from decimal import Decimal
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 
 from accounting.services import create_entry
 from .models import JewelryItem
 
 
+@login_required
 def import_stock(request):
     if request.method == "POST" and request.FILES.get("file"):
         decoded = request.FILES["file"].read().decode("utf-8-sig")
@@ -20,7 +22,7 @@ def import_stock(request):
         for row_num, raw in enumerate(reader, start=2):
             row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
             if not row.get("name") and not row.get("barcode"):
-                continue  # skip blank rows
+                continue
             try:
                 cost = Decimal(row.get("cost_price") or "0")
                 qty = int(row.get("quantity") or "1")
@@ -37,7 +39,6 @@ def import_stock(request):
                 )
                 created += 1
 
-                # One opening-balance journal entry PER item
                 line_cost = cost * qty
                 if line_cost > 0:
                     create_entry(

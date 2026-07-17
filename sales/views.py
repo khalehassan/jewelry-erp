@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 
 from inventory.models import JewelryItem
@@ -9,6 +10,7 @@ from customers.models import Customer
 from .models import Sale, SaleLine
 
 
+@login_required
 def new_sale(request):
     if request.method == "POST":
         item_ids = request.POST.getlist("item")
@@ -16,7 +18,6 @@ def new_sale(request):
         makings = request.POST.getlist("making")
         qtys = request.POST.getlist("qty")
 
-        # Check there is enough stock BEFORE creating anything
         for item_id, qty in zip(item_ids, qtys):
             if not item_id:
                 continue
@@ -50,6 +51,7 @@ def new_sale(request):
     return render(request, "sales/new_sale.html", {"items": items, "customers": customers})
 
 
+@login_required
 def dashboard(request):
     today = timezone.localdate()
     todays_sales = Sale.objects.filter(created_at__date=today)
@@ -66,13 +68,11 @@ def dashboard(request):
     for item in JewelryItem.objects.all():
         stock_value += item.cost_price * item.quantity
 
-    # Best sellers by quantity sold
     sold = {}
     for line in SaleLine.objects.all():
         sold[line.item.name] = sold.get(line.item.name, 0) + line.quantity
     best_sellers = sorted(sold.items(), key=lambda pair: pair[1], reverse=True)[:5]
 
-    # Top customers by total spent
     customer_spend = []
     for c in Customer.objects.all():
         spent = sum((s.total for s in c.sales.all()), Decimal("0.00"))

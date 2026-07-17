@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Sign in — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>#id_username, #id_password { width:100%; }</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:380px; margin:40px auto;">
+    <h1 style="text-align:center;">Sign in</h1>
+    {% if form.errors %}
+    <div class="msg" style="background:#fdecea; border-color:#d93025; color:#b3261e;">Wrong username or password. Please try again.</div>
+    {% endif %}
+    <form method="post" class="card">
+        {% csrf_token %}
+        <label for="id_username">Username</label>
+        {{ form.username }}
+        <label for="id_password">Password</label>
+        {{ form.password }}
+        <button type="submit" class="btn" style="margin-top:20px; width:100%;">Sign in</button>
+    </form>
+</div>
+{% endblock %}

@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.db.models import Sum
 from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.decorators import login_required
 
 from inventory.models import JewelryItem
 from .models import Account
@@ -21,10 +22,12 @@ def _by_type(t):
     return rows, total
 
 
+@login_required
 def reports_index(request):
     return render(request, "accounting/reports_index.html")
 
 
+@login_required
 def trial_balance(request):
     trial = []
     total_debit = Decimal("0.00")
@@ -46,6 +49,7 @@ def trial_balance(request):
     })
 
 
+@login_required
 def income_statement(request):
     revenue_rows, revenue_total = _by_type(Account.Type.REVENUE)
     expense_rows, expense_total = _by_type(Account.Type.EXPENSE)
@@ -59,6 +63,7 @@ def income_statement(request):
     })
 
 
+@login_required
 def balance_sheet(request):
     asset_rows, asset_total = _by_type(Account.Type.ASSET)
     liability_rows, liability_total = _by_type(Account.Type.LIABILITY)
@@ -76,6 +81,7 @@ def balance_sheet(request):
     })
 
 
+@login_required
 def inventory_report(request):
     items = JewelryItem.objects.all().order_by("location", "name")
     total_cost = Decimal("0.00")
@@ -91,6 +97,7 @@ def inventory_report(request):
     })
 
 
+@login_required
 def account_detail(request, code):
     account = get_object_or_404(Account, code=code)
     lines = account.lines.select_related("entry").order_by("entry__date", "entry__id", "id")
