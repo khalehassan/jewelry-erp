@@ -19,7 +19,7 @@
         <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Revenue today</div>
         <div style="font-size:28px; font-weight:800; margin-top:8px; color:var(--gold);">{{ todays_revenue }} EGP</div>
     </div>
-    {% if is_owner %}
+    {% if perms.accounting.view_account %}
     <div class="card">
         <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Profit today</div>
         <div style="font-size:28px; font-weight:800; margin-top:8px;">{{ todays_profit }} EGP</div>
@@ -42,7 +42,7 @@
             {% endfor %}
         </table>
     </div>
-    {% if is_owner %}
+    {% if perms.accounting.view_account %}
     <div class="card">
         <h2>Top customers</h2>
         <table class="list">

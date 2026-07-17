@@ -53,12 +53,10 @@
                 {% if user.is_authenticated %}
                 <a href="{% url 'sales:dashboard' %}">Dashboard</a>
                 <a href="{% url 'sales:new_sale' %}">New Sale</a>
-                {% if user.is_staff %}
-                <a href="{% url 'purchases:new_purchase' %}">New Purchase</a>
-                <a href="{% url 'inventory:import_stock' %}">Import</a>
-                <a href="{% url 'accounting:reports' %}">Reports</a>
-                <a href="/admin/">Admin</a>
-                {% endif %}
+                {% if perms.purchases.add_purchase %}<a href="{% url 'purchases:new_purchase' %}">New Purchase</a>{% endif %}
+                {% if perms.inventory.add_jewelryitem %}<a href="{% url 'inventory:import_stock' %}">Import</a>{% endif %}
+                {% if perms.accounting.view_account %}<a href="{% url 'accounting:reports' %}">Reports</a>{% endif %}
+                {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
                 <form method="post" action="{% url 'logout' %}" style="display:inline; margin:0;">
                     {% csrf_token %}
                     <button type="submit" class="logout">Logout ({{ user.username }})</button>

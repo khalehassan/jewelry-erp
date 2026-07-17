@@ -11,17 +11,19 @@ from accounting.services import create_entry
 from .models import JewelryItem
 
 
-def owner_required(view):
-    @login_required
-    def wrapper(request, *args, **kwargs):
-        if not request.user.is_staff:
-            messages.error(request, "You don't have permission to open that page.")
-            return redirect("sales:dashboard")
-        return view(request, *args, **kwargs)
-    return wrapper
+def require_perm(perm):
+    def decorator(view):
+        @login_required
+        def wrapper(request, *args, **kwargs):
+            if not request.user.has_perm(perm):
+                messages.error(request, "You don't have permission to open that page.")
+                return redirect("sales:dashboard")
+            return view(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
-@owner_required
+@require_perm("inventory.add_jewelryitem")
 def import_stock(request):
     if request.method == "POST" and request.FILES.get("file"):
         decoded = request.FILES["file"].read().decode("utf-8-sig")

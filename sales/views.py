@@ -53,7 +53,6 @@ def new_sale(request):
 
 @login_required
 def dashboard(request):
-    is_owner = request.user.is_staff
     today = timezone.localdate()
     todays_sales = Sale.objects.filter(created_at__date=today)
     todays_count = todays_sales.count()
@@ -83,7 +82,6 @@ def dashboard(request):
     top_customers = [{"name": name, "spent": f"{spent:,.2f}"} for name, spent in customer_spend[:5]]
 
     return render(request, "sales/dashboard.html", {
-        "is_owner": is_owner,
         "today": today,
         "todays_count": todays_count,
         "todays_revenue": f"{todays_revenue:,.2f}",

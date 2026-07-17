@@ -8,17 +8,19 @@ from inventory.models import JewelryItem
 from .models import Supplier, Purchase, PurchaseLine
 
 
-def owner_required(view):
-    @login_required
-    def wrapper(request, *args, **kwargs):
-        if not request.user.is_staff:
-            messages.error(request, "You don't have permission to open that page.")
-            return redirect("sales:dashboard")
-        return view(request, *args, **kwargs)
-    return wrapper
+def require_perm(perm):
+    def decorator(view):
+        @login_required
+        def wrapper(request, *args, **kwargs):
+            if not request.user.has_perm(perm):
+                messages.error(request, "You don't have permission to open that page.")
+                return redirect("sales:dashboard")
+            return view(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
-@owner_required
+@require_perm("purchases.add_purchase")
 def new_purchase(request):
     if request.method == "POST":
         purchase = Purchase.objects.create(
