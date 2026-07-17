@@ -12,7 +12,7 @@
 <div class="head-row">
     <div>
         <h1 style="margin-bottom:2px;">{{ account.code }} — {{ account.name }}</h1>
-        <div class="sub">{{ account.get_type_display }} account · Balance: {{ account.balance|floatformat:2 }} EGP</div>
+        <div class="sub">{{ account.get_type_display }} account · Balance: {{ account_balance }} EGP</div>
     </div>
     <a class="btn ghost" href="{% url 'accounting:reports' %}">← Back to reports</a>
 </div>
@@ -30,9 +30,9 @@
         <tr>
             <td>{{ row.line.entry.date }}</td>
             <td><a class="drill" href="/admin/accounting/journalentry/{{ row.line.entry.id }}/change/">{{ row.line.entry.description|default:"Entry" }}</a></td>
-            <td class="num">{{ row.line.debit|floatformat:2 }}</td>
-            <td class="num">{{ row.line.credit|floatformat:2 }}</td>
-            <td class="num">{{ row.running|floatformat:2 }}</td>
+            <td class="num">{{ row.debit }}</td>
+            <td class="num">{{ row.credit }}</td>
+            <td class="num">{{ row.running }}</td>
         </tr>
         {% empty %}
         <tr><td colspan="5" class="sub">No transactions for this account yet.</td></tr>

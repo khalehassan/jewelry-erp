@@ -6,6 +6,10 @@ from django.shortcuts import render, get_object_or_404
 from .models import Account
 
 
+def _money(x):
+    return f"{x:,.2f}"
+
+
 def reports(request):
     accounts = list(Account.objects.all())
 
@@ -22,7 +26,7 @@ def reports(request):
         credit_col = -net if net < 0 else Decimal("0.00")
         total_debit += debit_col
         total_credit += credit_col
-        trial.append({"account": acc, "debit": debit_col, "credit": credit_col})
+        trial.append({"account": acc, "debit": _money(debit_col), "credit": _money(credit_col)})
 
     def by_type(t):
         rows = []
@@ -30,7 +34,7 @@ def reports(request):
         for acc in accounts:
             if acc.type == t:
                 bal = acc.balance
-                rows.append({"account": acc, "balance": bal})
+                rows.append({"account": acc, "balance": _money(bal)})
                 total += bal
         return rows, total
 
@@ -44,18 +48,18 @@ def reports(request):
 
     return render(request, "accounting/reports.html", {
         "trial": trial,
-        "total_debit": total_debit,
-        "total_credit": total_credit,
+        "total_debit": _money(total_debit),
+        "total_credit": _money(total_credit),
         "revenue_rows": revenue_rows,
-        "revenue_total": revenue_total,
+        "revenue_total": _money(revenue_total),
         "expense_rows": expense_rows,
-        "expense_total": expense_total,
-        "net_profit": net_profit,
+        "expense_total": _money(expense_total),
+        "net_profit": _money(net_profit),
         "asset_rows": asset_rows,
-        "asset_total": asset_total,
+        "asset_total": _money(asset_total),
         "liability_rows": liability_rows,
         "equity_rows": equity_rows,
-        "total_liab_equity_profit": liability_total + equity_total + net_profit,
+        "total_liab_equity_profit": _money(liability_total + equity_total + net_profit),
     })
 
 
@@ -70,8 +74,14 @@ def account_detail(request, code):
             running += line.debit - line.credit
         else:
             running += line.credit - line.debit
-        rows.append({"line": line, "running": running})
+        rows.append({
+            "line": line,
+            "debit": _money(line.debit),
+            "credit": _money(line.credit),
+            "running": _money(running),
+        })
     return render(request, "accounting/account_detail.html", {
         "account": account,
+        "account_balance": _money(account.balance),
         "rows": rows,
     })

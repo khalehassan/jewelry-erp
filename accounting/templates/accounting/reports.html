@@ -23,14 +23,14 @@
         {% for row in trial %}
         <tr>
             <td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.code }} — {{ row.account.name }}</a></td>
-            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.debit|floatformat:2 }}</a></td>
-            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.credit|floatformat:2 }}</a></td>
+            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.debit }}</a></td>
+            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.credit }}</a></td>
         </tr>
         {% endfor %}
         <tr>
             <td style="font-weight:800;">Total</td>
-            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_debit|floatformat:2 }}</td>
-            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_credit|floatformat:2 }}</td>
+            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_debit }}</td>
+            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_credit }}</td>
         </tr>
     </table>
 </div>
@@ -40,21 +40,21 @@
     <table class="list">
         <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px;">Revenue</td></tr>
         {% for row in revenue_rows %}
-        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance|floatformat:2 }}</td></tr>
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
         {% empty %}
         <tr><td class="sub">No revenue yet.</td><td></td></tr>
         {% endfor %}
-        <tr><td style="font-weight:700;">Total revenue</td><td class="num" style="font-weight:700;">{{ revenue_total|floatformat:2 }}</td></tr>
+        <tr><td style="font-weight:700;">Total revenue</td><td class="num" style="font-weight:700;">{{ revenue_total }}</td></tr>
 
         <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px; padding-top:14px;">Expenses</td></tr>
         {% for row in expense_rows %}
-        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance|floatformat:2 }}</td></tr>
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
         {% empty %}
         <tr><td class="sub">No expenses yet.</td><td></td></tr>
         {% endfor %}
-        <tr><td style="font-weight:700;">Total expenses</td><td class="num" style="font-weight:700;">{{ expense_total|floatformat:2 }}</td></tr>
+        <tr><td style="font-weight:700;">Total expenses</td><td class="num" style="font-weight:700;">{{ expense_total }}</td></tr>
 
-        <tr><td style="font-weight:800; font-size:18px;">Net Profit</td><td class="num" style="font-weight:800; font-size:18px; color:var(--gold);">{{ net_profit|floatformat:2 }}</td></tr>
+        <tr><td style="font-weight:800; font-size:18px;">Net Profit</td><td class="num" style="font-weight:800; font-size:18px; color:var(--gold);">{{ net_profit }}</td></tr>
     </table>
 </div>
 
@@ -63,19 +63,19 @@
     <table class="list">
         <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px;">Assets</td></tr>
         {% for row in asset_rows %}
-        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance|floatformat:2 }}</td></tr>
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
         {% endfor %}
-        <tr><td style="font-weight:800;">Total Assets</td><td class="num" style="font-weight:800; color:var(--gold);">{{ asset_total|floatformat:2 }}</td></tr>
+        <tr><td style="font-weight:800;">Total Assets</td><td class="num" style="font-weight:800; color:var(--gold);">{{ asset_total }}</td></tr>
 
         <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px; padding-top:14px;">Liabilities &amp; Equity</td></tr>
         {% for row in liability_rows %}
-        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance|floatformat:2 }}</td></tr>
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
         {% endfor %}
         {% for row in equity_rows %}
-        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance|floatformat:2 }}</td></tr>
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
         {% endfor %}
-        <tr><td>Net Profit (retained)</td><td class="num">{{ net_profit|floatformat:2 }}</td></tr>
-        <tr><td style="font-weight:800;">Total Liabilities &amp; Equity</td><td class="num" style="font-weight:800; color:var(--gold);">{{ total_liab_equity_profit|floatformat:2 }}</td></tr>
+        <tr><td>Net Profit (retained)</td><td class="num">{{ net_profit }}</td></tr>
+        <tr><td style="font-weight:800;">Total Liabilities &amp; Equity</td><td class="num" style="font-weight:800; color:var(--gold);">{{ total_liab_equity_profit }}</td></tr>
     </table>
     <p class="sub" style="margin-top:10px;">Total Assets should equal Total Liabilities &amp; Equity — if they match, your books balance. ✅</p>
 </div>
