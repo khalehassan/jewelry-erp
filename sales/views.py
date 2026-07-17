@@ -66,16 +66,27 @@ def dashboard(request):
     for item in JewelryItem.objects.all():
         stock_value += item.cost_price * item.quantity
 
+    # Best sellers by quantity sold
     sold = {}
     for line in SaleLine.objects.all():
         sold[line.item.name] = sold.get(line.item.name, 0) + line.quantity
     best_sellers = sorted(sold.items(), key=lambda pair: pair[1], reverse=True)[:5]
 
+    # Top customers by total spent
+    customer_spend = []
+    for c in Customer.objects.all():
+        spent = sum((s.total for s in c.sales.all()), Decimal("0.00"))
+        if spent > 0:
+            customer_spend.append((c.name, spent))
+    customer_spend.sort(key=lambda pair: pair[1], reverse=True)
+    top_customers = [{"name": name, "spent": f"{spent:,.2f}"} for name, spent in customer_spend[:5]]
+
     return render(request, "sales/dashboard.html", {
         "today": today,
         "todays_count": todays_count,
-        "todays_revenue": todays_revenue,
-        "todays_profit": todays_profit,
-        "stock_value": stock_value,
+        "todays_revenue": f"{todays_revenue:,.2f}",
+        "todays_profit": f"{todays_profit:,.2f}",
+        "stock_value": f"{stock_value:,.2f}",
         "best_sellers": best_sellers,
+        "top_customers": top_customers,
     })
