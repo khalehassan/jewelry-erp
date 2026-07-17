@@ -5,15 +5,19 @@
 <style>
     table.linetable { width:100%; border-collapse:collapse; margin-top:8px; }
     table.linetable th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:8px 6px; }
-    table.linetable td { padding:6px; }
+    table.linetable td { padding:6px; vertical-align:top; }
     table.linetable td.lineTotal { text-align:right; font-weight:700; white-space:nowrap; }
     table.linetable select, table.linetable input { width:100%; }
+    .avail { font-size:12px; margin-top:4px; color:var(--muted); }
+    .avail.over { color:#c0392b; font-weight:700; }
     .removeBtn { background:var(--panel); border:1px solid var(--line); color:#c0392b; border-radius:6px; padding:6px 10px; cursor:pointer; font-weight:700; }
     .addBtn { margin-top:10px; background:transparent; border:1px dashed var(--gold); color:var(--gold); padding:8px 14px; border-radius:8px; cursor:pointer; font-weight:700; }
     .totals { margin-top:22px; text-align:right; }
     .totals div { margin:6px 0; font-size:16px; }
     .totals .grand { font-size:26px; font-weight:800; }
     .totals span { color:var(--gold); font-weight:800; }
+    .checkline { display:flex; align-items:center; gap:8px; margin-top:12px; }
+    .checkline input { width:auto; }
 </style>
 {% endblock %}
 
@@ -34,7 +38,7 @@
     <table class="linetable">
         <thead>
             <tr>
-                <th style="width:38%">Item</th>
+                <th style="width:44%">Item</th>
                 <th>Gold /g</th>
                 <th>Making /g</th>
                 <th style="width:80px">Qty</th>
@@ -47,11 +51,12 @@
                 <td>
                     <select name="item" class="item">
                         {% for item in items %}
-                        <option value="{{ item.id }}" data-weight="{{ item.weight_grams }}">
-                            {{ item.name }} — {{ item.karat }}K, {{ item.weight_grams }}g
+                        <option value="{{ item.id }}" data-weight="{{ item.weight_grams }}" data-stock="{{ item.quantity }}">
+                            {{ item.name }} — {{ item.karat }}K, {{ item.weight_grams }}g · stock {{ item.quantity }}
                         </option>
                         {% endfor %}
                     </select>
+                    <div class="avail"></div>
                 </td>
                 <td><input type="number" name="gold" class="gold" value="0" step="0.01"></td>
                 <td><input type="number" name="making" class="making" value="0" step="0.01"></td>
@@ -66,9 +71,7 @@
     <label for="discount">Discount (EGP)</label>
     <input id="discount" name="discount" type="number" value="0" step="0.01" style="width:180px">
 
-    <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
-        <input type="checkbox" name="on_credit" style="width:auto;"> On credit (customer owes)
-    </label>
+    <label class="checkline"><input type="checkbox" name="on_credit"> On credit (customer owes)</label>
 
     <div class="totals">
         <div>Subtotal: <span id="subtotal">0.00</span> EGP</div>
@@ -93,13 +96,24 @@
         let subtotal = 0;
         linesEl.querySelectorAll(".line").forEach(row => {
             const sel = row.querySelector(".item");
-            const weight = parseFloat(sel.options[sel.selectedIndex].dataset.weight) || 0;
+            const opt = sel.options[sel.selectedIndex];
+            const weight = parseFloat(opt.dataset.weight) || 0;
+            const stock = parseInt(opt.dataset.stock) || 0;
             const gold = parseFloat(row.querySelector(".gold").value) || 0;
             const making = parseFloat(row.querySelector(".making").value) || 0;
             const qty = parseInt(row.querySelector(".qty").value) || 0;
             const lineTotal = weight * (gold + making) * qty;
             row.querySelector(".lineTotal").textContent = fmt(lineTotal);
             subtotal += lineTotal;
+
+            const availEl = row.querySelector(".avail");
+            if (qty > stock) {
+                availEl.textContent = "⚠ Only " + stock + " in stock";
+                availEl.classList.add("over");
+            } else {
+                availEl.textContent = "In stock: " + stock;
+                availEl.classList.remove("over");
+            }
         });
         const discount = parseFloat(discountEl.value) || 0;
         subtotalEl.textContent = fmt(subtotal);
@@ -115,6 +129,7 @@
         newRow.querySelector(".qty").value = 1;
         newRow.querySelector(".lineTotal").textContent = "0.00";
         linesEl.appendChild(newRow);
+        recalc();
     }
 
     linesEl.addEventListener("input", recalc);

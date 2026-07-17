@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ account.code }} {{ account.name }} — Ledger{% endblock %}
+
+{% block head %}
+<style>
+    a.drill { color:inherit; text-decoration:none; }
+    a.drill:hover { color:var(--gold); text-decoration:underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div>
+        <h1 style="margin-bottom:2px;">{{ account.code }} — {{ account.name }}</h1>
+        <div class="sub">{{ account.get_type_display }} account · Balance: {{ account.balance|floatformat:2 }} EGP</div>
+    </div>
+    <a class="btn ghost" href="{% url 'accounting:reports' %}">← Back to reports</a>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <table class="list">
+        <tr>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Date</td>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Transaction</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Debit</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Credit</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Balance</td>
+        </tr>
+        {% for row in rows %}
+        <tr>
+            <td>{{ row.line.entry.date }}</td>
+            <td><a class="drill" href="/admin/accounting/journalentry/{{ row.line.entry.id }}/change/">{{ row.line.entry.description|default:"Entry" }}</a></td>
+            <td class="num">{{ row.line.debit|floatformat:2 }}</td>
+            <td class="num">{{ row.line.credit|floatformat:2 }}</td>
+            <td class="num">{{ row.running|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="sub">No transactions for this account yet.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}
