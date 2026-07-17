@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.db import models
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_delete
 from django.dispatch import receiver
 
 from inventory.models import JewelryItem
@@ -32,12 +32,12 @@ class Sale(models.Model):
         from accounting.services import create_entry
         total = self.total
         cost = sum((l.item.cost_price * l.quantity for l in self.lines.all()), Decimal("0.00"))
-        receivable = "1100" if self.on_credit else "1000"   # AR if credit, else Cash
+        receivable = "1100" if self.on_credit else "1000"
         lines = [
-            (receivable, total, Decimal("0.00")),   # Dr Cash / AR
-            ("4000", Decimal("0.00"), total),       # Cr Sales Revenue
-            ("5000", cost, Decimal("0.00")),        # Dr COGS
-            ("1200", Decimal("0.00"), cost),        # Cr Inventory
+            (receivable, total, Decimal("0.00")),
+            ("4000", Decimal("0.00"), total),
+            ("5000", cost, Decimal("0.00")),
+            ("1200", Decimal("0.00"), cost),
         ]
         entry = create_entry(self.created_at.date(), f"Sale #{self.pk}", lines)
         self.journal_entry = entry
@@ -70,6 +70,16 @@ def reduce_stock_on_sale(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender=SaleLine)
 def restore_stock_on_delete(sender, instance, **kwargs):
-    item = instance.item
-    item.quantity = item.quantity + instance.quantity
-    item.save()
+    if instance.item_id:
+        item = instance.item
+        item.quantity = item.quantity + instance.quantity
+        item.save()
+
+
+@receiver(pre_delete, sender=Sale)
+def cleanup_on_sale_delete(sender, instance, **kwargs):
+    je_id = instance.journal_entry_id
+    if je_id:
+        Sale.objects.filter(pk=instance.pk).update(journal_entry=None)
+        from accounting.models import JournalEntry
+        JournalEntry.objects.filter(pk=je_id).delete()

@@ -11,15 +11,26 @@ from .models import Sale, SaleLine
 
 def new_sale(request):
     if request.method == "POST":
+        item_ids = request.POST.getlist("item")
+        golds = request.POST.getlist("gold")
+        makings = request.POST.getlist("making")
+        qtys = request.POST.getlist("qty")
+
+        # Check there is enough stock BEFORE creating anything
+        for item_id, qty in zip(item_ids, qtys):
+            if not item_id:
+                continue
+            item = JewelryItem.objects.filter(pk=item_id).first()
+            wanted = int(qty or 1)
+            if item and wanted > item.quantity:
+                messages.error(request, f"Not enough stock for “{item.name}” — only {item.quantity} available.")
+                return redirect("sales:new_sale")
+
         sale = Sale.objects.create(
             customer_id=request.POST.get("customer") or None,
             discount=Decimal(request.POST.get("discount") or 0),
             on_credit=bool(request.POST.get("on_credit")),
         )
-        item_ids = request.POST.getlist("item")
-        golds = request.POST.getlist("gold")
-        makings = request.POST.getlist("making")
-        qtys = request.POST.getlist("qty")
         for item_id, gold, making, qty in zip(item_ids, golds, makings, qtys):
             if not item_id:
                 continue

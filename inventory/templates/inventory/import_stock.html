@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Import Stock — Jewelry ERP{% endblock %}
+
+{% block content %}
+<h1>Import Stock from Spreadsheet</h1>
+
+<div class="card">
+    <p>Prepare an Excel/Google Sheet with these column headers in the first row, then <b>Save As → CSV</b> and upload it here:</p>
+    <p style="font-family:monospace; background:var(--bg); padding:10px 12px; border-radius:6px; overflow-x:auto;">
+        barcode, name, category, karat, weight_grams, cost_price, location, quantity
+    </p>
+    <ul class="sub" style="line-height:1.9;">
+        <li><b>barcode</b> — the code on the tag (leave blank to auto-generate a JW code)</li>
+        <li><b>category</b> — ring / necklace / bracelet / earring / chain / pendant / other</li>
+        <li><b>karat</b> — 18, 21, or 24</li>
+        <li><b>weight_grams</b> — e.g. 5.50</li>
+        <li><b>cost_price</b> — what the piece cost you (EGP)</li>
+        <li><b>location</b> — safe or showcase</li>
+        <li><b>quantity</b> — usually 1</li>
+    </ul>
+
+    <form method="post" enctype="multipart/form-data" style="margin-top:16px;">
+        {% csrf_token %}
+        <input type="file" name="file" accept=".csv" required>
+        <button type="submit" class="btn" style="margin-top:14px;">Upload &amp; Import</button>
+    </form>
+</div>
+{% endblock %}

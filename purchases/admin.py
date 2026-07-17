@@ -11,7 +11,7 @@ class SupplierAdmin(admin.ModelAdmin):
 class PurchaseLineInline(admin.TabularInline):
     model = PurchaseLine
     extra = 1
-    fields = ("name", "category", "karat", "weight_grams", "stone_details", "unit_cost", "quantity", "line_total_display")
+    fields = ("barcode", "name", "category", "karat", "weight_grams", "stone_details", "location", "unit_cost", "quantity", "line_total_display")
     readonly_fields = ("line_total_display",)
 
     @admin.display(description="Line total (EGP)")

@@ -1,9 +1,25 @@
+from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
+
 from .models import Sale, SaleLine
+
+
+class SaleLineFormSet(forms.BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
+                continue
+            item = form.cleaned_data.get("item")
+            qty = form.cleaned_data.get("quantity") or 0
+            if item and qty > item.quantity:
+                raise ValidationError(f"Not enough stock for {item.name}: only {item.quantity} available.")
 
 
 class SaleLineInline(admin.TabularInline):
     model = SaleLine
+    formset = SaleLineFormSet
     extra = 1
     readonly_fields = ("line_total_display",)
 
