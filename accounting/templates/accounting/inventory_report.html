@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Inventory Report — Jewelry ERP{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div><h1 style="margin-bottom:2px;">Inventory Report</h1><div class="sub">{{ item_count }} piece(s) in stock</div></div>
+    <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+</div>
+
+<div class="card" style="margin-top:20px; overflow-x:auto;">
+    <table class="list" style="min-width:780px;">
+        <tr>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Barcode</td>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Name</td>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Karat</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Weight (g)</td>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Location</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Qty</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Cost value</td>
+        </tr>
+        {% for row in rows %}
+        <tr>
+            <td>{{ row.item.barcode }}</td>
+            <td>{{ row.item.name }}</td>
+            <td>{{ row.item.karat }}K</td>
+            <td class="num">{{ row.item.weight_grams }}</td>
+            <td>{{ row.item.get_location_display }}</td>
+            <td class="num">{{ row.item.quantity }}</td>
+            <td class="num">{{ row.line_cost }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="sub">No items in inventory.</td></tr>
+        {% endfor %}
+        <tr>
+            <td colspan="6" style="font-weight:800;">Total stock value (cost)</td>
+            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_cost }}</td>
+        </tr>
+    </table>
+</div>
+{% endblock %}

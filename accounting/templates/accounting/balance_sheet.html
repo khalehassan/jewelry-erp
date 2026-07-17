@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Balance Sheet — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>a.drill { color:inherit; text-decoration:none; } a.drill:hover { color:var(--gold); text-decoration:underline; }</style>
+{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div><h1 style="margin-bottom:2px;">Balance Sheet</h1></div>
+    <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <table class="list">
+        <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px;">Assets</td></tr>
+        {% for row in asset_rows %}
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
+        {% endfor %}
+        <tr><td style="font-weight:800;">Total Assets</td><td class="num" style="font-weight:800; color:var(--gold);">{{ asset_total }}</td></tr>
+
+        <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px; padding-top:14px;">Liabilities &amp; Equity</td></tr>
+        {% for row in liability_rows %}
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
+        {% endfor %}
+        {% for row in equity_rows %}
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
+        {% endfor %}
+        <tr><td>Net Profit (retained)</td><td class="num">{{ net_profit }}</td></tr>
+        <tr><td style="font-weight:800;">Total Liabilities &amp; Equity</td><td class="num" style="font-weight:800; color:var(--gold);">{{ total_liab_equity_profit }}</td></tr>
+    </table>
+    <p class="sub" style="margin-top:10px;">Total Assets should equal Total Liabilities &amp; Equity. ✅</p>
+</div>
+{% endblock %}

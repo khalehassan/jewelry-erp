@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Trial Balance — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>a.drill { color:inherit; text-decoration:none; } a.drill:hover { color:var(--gold); text-decoration:underline; }</style>
+{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div><h1 style="margin-bottom:2px;">Trial Balance</h1><div class="sub">Click an account to see its transactions</div></div>
+    <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <table class="list">
+        <tr>
+            <td class="sub" style="font-size:12px; text-transform:uppercase;">Account</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Debit</td>
+            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Credit</td>
+        </tr>
+        {% for row in trial %}
+        <tr>
+            <td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.code }} — {{ row.account.name }}</a></td>
+            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.debit }}</a></td>
+            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.credit }}</a></td>
+        </tr>
+        {% endfor %}
+        <tr>
+            <td style="font-weight:800;">Total</td>
+            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_debit }}</td>
+            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_credit }}</td>
+        </tr>
+    </table>
+</div>
+{% endblock %}

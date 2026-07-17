@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Income Statement — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>a.drill { color:inherit; text-decoration:none; } a.drill:hover { color:var(--gold); text-decoration:underline; }</style>
+{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div><h1 style="margin-bottom:2px;">Income Statement</h1></div>
+    <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <table class="list">
+        <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px;">Revenue</td></tr>
+        {% for row in revenue_rows %}
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
+        {% empty %}
+        <tr><td class="sub">No revenue yet.</td><td></td></tr>
+        {% endfor %}
+        <tr><td style="font-weight:700;">Total revenue</td><td class="num" style="font-weight:700;">{{ revenue_total }}</td></tr>
+
+        <tr><td colspan="2" class="sub" style="text-transform:uppercase; font-size:12px; padding-top:14px;">Expenses</td></tr>
+        {% for row in expense_rows %}
+        <tr><td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.name }}</a></td><td class="num">{{ row.balance }}</td></tr>
+        {% empty %}
+        <tr><td class="sub">No expenses yet.</td><td></td></tr>
+        {% endfor %}
+        <tr><td style="font-weight:700;">Total expenses</td><td class="num" style="font-weight:700;">{{ expense_total }}</td></tr>
+
+        <tr><td style="font-weight:800; font-size:18px;">Net Profit</td><td class="num" style="font-weight:800; font-size:18px; color:var(--gold);">{{ net_profit }}</td></tr>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Reports — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>
+    a.report-line { display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); text-decoration:none; color:var(--ink); margin-bottom:12px; }
+    a.report-line:hover { border-color:var(--gold); }
+    a.report-line .title { font-weight:700; font-size:16px; }
+    a.report-line .desc { color:var(--muted); font-size:13px; margin-top:2px; }
+    a.report-line .arrow { color:var(--gold); font-weight:800; font-size:20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Reports</h1>
+
+<a class="report-line" href="{% url 'accounting:trial_balance' %}">
+    <div><div class="title">Trial Balance</div><div class="desc">Every account's debit &amp; credit — proves the books balance</div></div>
+    <span class="arrow">→</span>
+</a>
+<a class="report-line" href="{% url 'accounting:income_statement' %}">
+    <div><div class="title">Income Statement</div><div class="desc">Revenue − Expenses = Net profit</div></div>
+    <span class="arrow">→</span>
+</a>
+<a class="report-line" href="{% url 'accounting:balance_sheet' %}">
+    <div><div class="title">Balance Sheet</div><div class="desc">Assets = Liabilities + Equity</div></div>
+    <span class="arrow">→</span>
+</a>
+<a class="report-line" href="{% url 'accounting:inventory_report' %}">
+    <div><div class="title">Inventory Report</div><div class="desc">All stock pieces, locations, and total value</div></div>
+    <span class="arrow">→</span>
+</a>
+{% endblock %}
