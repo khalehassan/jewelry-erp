@@ -2,15 +2,10 @@
 {% block title %}Dashboard — Jewelry ERP{% endblock %}
 
 {% block content %}
-<div class="head-row">
-    <div>
-        <h1 style="margin-bottom:2px;">Dashboard</h1>
-        <div class="sub">{{ today }}</div>
-    </div>
-    <a class="btn" href="{% url 'sales:new_sale' %}">+ New Sale</a>
-</div>
+<h1 style="margin-bottom:2px;">Dashboard</h1>
+<div class="sub" style="margin-bottom:18px;">{{ today }}</div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-top:24px;">
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px;">
     <div class="card">
         <div class="sub" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-size:12px;">Sales today</div>
         <div style="font-size:28px; font-weight:800; margin-top:8px;">{{ todays_count }}</div>
