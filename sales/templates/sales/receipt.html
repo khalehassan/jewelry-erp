@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Receipt — Sale #{{ sale.pk }}{% endblock %}
+
+{% block head %}
+<style>
+    .receipt { max-width:520px; margin:0 auto; }
+    .receipt .shop { text-align:center; }
+    .receipt .shop h2 { font-size:22px; margin:0; }
+    .receipt .meta { display:flex; justify-content:space-between; font-size:14px; color:var(--muted); margin-top:12px; }
+    .receipt table { width:100%; border-collapse:collapse; margin-top:16px; font-size:14px; }
+    .receipt th { text-align:left; font-size:11px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); padding:6px 4px; }
+    .receipt td { padding:8px 4px; border-bottom:1px solid var(--line); vertical-align:top; }
+    .receipt td.num, .receipt th.num { text-align:right; white-space:nowrap; }
+    .receipt .totals { margin-top:14px; }
+    .receipt .totals div { display:flex; justify-content:space-between; padding:4px 0; }
+    .receipt .totals .grand { font-size:20px; font-weight:800; border-top:2px solid var(--line); padding-top:10px; margin-top:6px; }
+    .receipt .thanks { text-align:center; color:var(--muted); font-size:13px; margin-top:22px; }
+    .actions { text-align:center; margin-top:22px; display:flex; gap:10px; justify-content:center; }
+    @media print {
+        .topbar, .actions, .msg { display:none !important; }
+        body { background:#fff; color:#000; }
+        .card { border:none; padding:0; background:#fff; }
+        .page { padding:0; }
+        .receipt .sub, .receipt .meta { color:#555; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card receipt">
+    <div class="shop">
+        <h2>Jewelry Store</h2>
+        <div class="sub">Sales Receipt</div>
+    </div>
+
+    <div class="meta">
+        <div>Receipt #{{ sale.pk }}</div>
+        <div>{{ sale.created_at|date:"Y-m-d H:i" }}</div>
+    </div>
+    <div class="meta">
+        <div>Customer: {% if sale.customer %}{{ sale.customer.name }}{% else %}Walk-in{% endif %}</div>
+        <div>{% if sale.on_credit %}On credit{% else %}Paid{% endif %}</div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Item</th>
+                <th class="num">Qty</th>
+                <th class="num">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in lines %}
+            <tr>
+                <td>
+                    <strong>{{ row.line.item.name }}</strong><br>
+                    <span class="sub">{{ row.line.item.karat }}K · {{ row.line.item.weight_grams }}g · gold {{ row.gold }} + making {{ row.making }} /g</span>
+                </td>
+                <td class="num">{{ row.line.quantity }}</td>
+                <td class="num">{{ row.line_total }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="sub">No items on this sale.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals">
+        <div><span>Subtotal</span><span>{{ subtotal }} EGP</span></div>
+        <div><span>Discount</span><span>− {{ discount }} EGP</span></div>
+        <div class="grand"><span>Total</span><span>{{ total }} EGP</span></div>
+    </div>
+
+    <div class="thanks">Thank you for your purchase 💛</div>
+</div>
+
+<div class="actions">
+    <button class="btn" onclick="window.print()">🖨 Print receipt</button>
+    <a class="btn ghost" href="{% url 'sales:new_sale' %}">+ New sale</a>
+</div>
+{% endblock %}

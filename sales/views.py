@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
@@ -44,11 +44,31 @@ def new_sale(request):
             )
         sale.post_to_ledger()
         messages.success(request, f"Sale #{sale.pk} saved — total {sale.total:,.2f} EGP")
-        return redirect("sales:new_sale")
+        return redirect("sales:receipt", pk=sale.pk)
 
     items = JewelryItem.objects.all()
     customers = Customer.objects.all()
     return render(request, "sales/new_sale.html", {"items": items, "customers": customers})
+
+
+@login_required
+def receipt(request, pk):
+    sale = get_object_or_404(Sale, pk=pk)
+    lines = []
+    for line in sale.lines.select_related("item").all():
+        lines.append({
+            "line": line,
+            "gold": f"{line.gold_price_per_gram:,.2f}",
+            "making": f"{line.making_charge_per_gram:,.2f}",
+            "line_total": f"{line.line_total:,.2f}",
+        })
+    return render(request, "sales/receipt.html", {
+        "sale": sale,
+        "lines": lines,
+        "subtotal": f"{sale.subtotal:,.2f}",
+        "discount": f"{sale.discount:,.2f}",
+        "total": f"{sale.total:,.2f}",
+    })
 
 
 @login_required

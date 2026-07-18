@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.utils.html import format_html
 
 from .models import Sale, SaleLine
 
@@ -33,13 +34,19 @@ class SaleLineInline(admin.TabularInline):
 @admin.register(Sale)
 class SaleAdmin(admin.ModelAdmin):
     inlines = [SaleLineInline]
-    list_display = ("id", "customer", "on_credit", "created_at", "total_display")
+    list_display = ("id", "customer", "on_credit", "created_at", "total_display", "receipt_link")
     list_filter = ("customer", "on_credit")
     readonly_fields = ("subtotal_display", "total_display", "created_at", "journal_entry")
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.post_to_ledger()
+
+    @admin.display(description="Receipt")
+    def receipt_link(self, obj):
+        if obj.pk:
+            return format_html('<a href="/sale/{}/receipt/" target="_blank">Print</a>', obj.pk)
+        return "—"
 
     @admin.display(description="Subtotal (EGP)")
     def subtotal_display(self, obj):
