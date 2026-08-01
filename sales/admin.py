@@ -42,6 +42,12 @@ class SaleAdmin(admin.ModelAdmin):
         super().save_related(request, form, formsets, change)
         form.instance.post_to_ledger()
 
+    def has_change_permission(self, request, obj=None):
+        # A posted sale is locked — the admin shows it read-only instead.
+        if obj is not None and obj.journal_entry_id:
+            return False
+        return super().has_change_permission(request, obj)
+
     @admin.display(description="Receipt")
     def receipt_link(self, obj):
         if obj.pk:

@@ -1,10 +1,12 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import ProtectedError
 from django.db.models.signals import post_save, post_delete, pre_delete
 from django.dispatch import receiver
 
+from accounting.services import POSTED_LOCK_MESSAGE
 from inventory.models import JewelryItem
 
 
@@ -31,6 +33,13 @@ class Purchase(models.Model):
             return f"Opening stock #{self.pk}"
         who = self.supplier.name if self.supplier else "Cash purchase"
         return f"Purchase #{self.pk} — {who}"
+
+    def save(self, *args, **kwargs):
+        # Locked once posted; only the system's own journal_entry stamp gets through.
+        if self.pk and self.journal_entry_id:
+            if set(kwargs.get("update_fields") or []) != {"journal_entry"}:
+                raise ValidationError(POSTED_LOCK_MESSAGE.format(what=f"Purchase #{self.pk}"))
+        super().save(*args, **kwargs)
 
     @property
     def total(self):
@@ -80,6 +89,22 @@ class PurchaseLine(models.Model):
 
     def __str__(self):
         return f"{self.quantity} × {self.name}"
+
+    def _guard_posted(self, update_fields=None):
+        # The created_item stamp is the signal linking this line to the stock it
+        # made — a system write, not a user edit, so it stays allowed.
+        if set(update_fields or []) == {"created_item"}:
+            return
+        if self.purchase_id and self.purchase.journal_entry_id:
+            raise ValidationError(POSTED_LOCK_MESSAGE.format(what=f"Purchase #{self.purchase_id}"))
+
+    def save(self, *args, **kwargs):
+        self._guard_posted(kwargs.get("update_fields"))
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        self._guard_posted()
+        super().delete(*args, **kwargs)
 
     @property
     def line_total(self):

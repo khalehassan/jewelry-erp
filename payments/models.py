@@ -1,8 +1,11 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+
+from accounting.services import POSTED_LOCK_MESSAGE
 
 
 class Payment(models.Model):
@@ -25,6 +28,13 @@ class Payment(models.Model):
         who = self.customer.name if self.customer else (self.supplier.name if self.supplier else "—")
         verb = "from" if self.kind == self.Kind.RECEIVE else "to"
         return f"Payment #{self.pk} — {self.amount} {verb} {who}"
+
+    def save(self, *args, **kwargs):
+        # Locked once posted; only the system's own journal_entry stamp gets through.
+        if self.pk and self.journal_entry_id:
+            if set(kwargs.get("update_fields") or []) != {"journal_entry"}:
+                raise ValidationError(POSTED_LOCK_MESSAGE.format(what=f"Payment #{self.pk}"))
+        super().save(*args, **kwargs)
 
     def post_to_ledger(self):
         if self.journal_entry_id:

@@ -1,9 +1,11 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save, post_delete, pre_delete
 from django.dispatch import receiver
 
+from accounting.services import POSTED_LOCK_MESSAGE
 from inventory.models import JewelryItem
 
 
@@ -17,6 +19,14 @@ class Sale(models.Model):
     def __str__(self):
         who = self.customer.name if self.customer else "Walk-in customer"
         return f"Sale #{self.pk} — {who}"
+
+    def save(self, *args, **kwargs):
+        # Once a sale is on the books it is locked. The only write still allowed
+        # is the system stamping on its own journal_entry link.
+        if self.pk and self.journal_entry_id:
+            if set(kwargs.get("update_fields") or []) != {"journal_entry"}:
+                raise ValidationError(POSTED_LOCK_MESSAGE.format(what=f"Sale #{self.pk}"))
+        super().save(*args, **kwargs)
 
     @property
     def subtotal(self):
@@ -67,6 +77,18 @@ class SaleLine(models.Model):
 
     def __str__(self):
         return f"{self.quantity} × {self.item.name}"
+
+    def _guard_posted(self):
+        if self.sale_id and self.sale.journal_entry_id:
+            raise ValidationError(POSTED_LOCK_MESSAGE.format(what=f"Sale #{self.sale_id}"))
+
+    def save(self, *args, **kwargs):
+        self._guard_posted()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        self._guard_posted()
+        super().delete(*args, **kwargs)
 
     @property
     def line_total(self):
