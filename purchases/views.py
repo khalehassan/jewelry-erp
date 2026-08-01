@@ -20,6 +20,27 @@ def require_perm(perm):
     return decorator
 
 
+@require_perm("purchases.add_supplier")
+def new_supplier(request):
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip()
+        if not name:
+            messages.error(request, "Supplier name is required.")
+            return redirect("purchases:new_supplier")
+        Supplier.objects.create(
+            name=name,
+            phone=(request.POST.get("phone") or "").strip(),
+            email=(request.POST.get("email") or "").strip(),
+            notes=(request.POST.get("notes") or "").strip(),
+        )
+        messages.success(request, f"Supplier “{name}” added.")
+        return redirect("purchases:new_supplier")
+
+    return render(request, "purchases/new_supplier.html", {
+        "suppliers": Supplier.objects.all().order_by("name"),
+    })
+
+
 @require_perm("purchases.add_purchase")
 def new_purchase(request):
     if request.method == "POST":

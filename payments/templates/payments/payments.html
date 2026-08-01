@@ -46,6 +46,9 @@
             <option value="">— choose —</option>
             {% for s in suppliers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
         </select>
+        {% if perms.purchases.add_supplier %}
+        <p class="sub" style="margin:6px 0 0;"><a href="{% url 'purchases:new_supplier' %}">+ Add a new supplier</a></p>
+        {% endif %}
 
         <label for="p-amount">Amount (EGP)</label>
         <input type="number" id="p-amount" name="amount" step="0.01" min="0.01" required>

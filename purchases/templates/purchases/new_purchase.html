@@ -33,6 +33,9 @@
         <option value="{{ s.id }}">{{ s.name }}</option>
         {% endfor %}
     </select>
+    {% if perms.purchases.add_supplier %}
+    <p class="sub" style="margin:6px 0 0;"><a href="{% url 'purchases:new_supplier' %}">+ Add a new supplier</a></p>
+    {% endif %}
 
     <div class="scroll">
         <table class="linetable">
