@@ -42,8 +42,10 @@ class Purchase(models.Model):
         from accounting.services import create_entry
         total = self.total
         if self.is_opening:
-            # Stock you already owned: the owner put it there, so credit Owner's Equity
-            credit_account = "3000"
+            # Stock that existed before the books did. Standard practice is to park
+            # the other side in Opening Balance Equity, then clear that one account
+            # to Owner's Capital once every opening balance is entered.
+            credit_account = "3100"
             description = f"Opening stock #{self.pk}"
         else:
             credit_account = "2000" if self.on_credit else "1000"
