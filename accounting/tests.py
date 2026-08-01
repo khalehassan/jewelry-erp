@@ -24,42 +24,21 @@ class GoldMovementReportTests(TestCase):
         self.user.user_permissions.add(permission)
         self.client.force_login(self.user)
 
-    def _at_noon(self, year, month, day):
-        return timezone.make_aware(datetime(year, month, day, 12, 0))
+    def _at(self, year, month, day, hour):
+        return timezone.make_aware(datetime(year, month, day, hour, 0))
 
-    def test_report_groups_daily_weights_and_excludes_opening_stock(self):
+    def test_purchase_and_sale_are_transaction_rows_with_running_balance(self):
         purchase = Purchase.objects.create()
-        PurchaseLine.objects.create(
-            purchase=purchase,
-            name="18K ring",
-            karat=18,
-            weight_grams=Decimal("4.000"),
-            unit_cost=Decimal("1000.00"),
-            quantity=1,
-        )
         line_21k = PurchaseLine.objects.create(
             purchase=purchase,
             name="21K chain",
             karat=21,
-            weight_grams=Decimal("10.000"),
+            weight_grams=Decimal("2.000"),
             unit_cost=Decimal("2000.00"),
             quantity=2,
         )
         Purchase.objects.filter(pk=purchase.pk).update(
-            created_at=self._at_noon(2026, 7, 10)
-        )
-
-        opening = Purchase.objects.create(is_opening=True)
-        PurchaseLine.objects.create(
-            purchase=opening,
-            name="Opening 24K stock",
-            karat=24,
-            weight_grams=Decimal("100.000"),
-            unit_cost=Decimal("5000.00"),
-            quantity=1,
-        )
-        Purchase.objects.filter(pk=opening.pk).update(
-            created_at=self._at_noon(2026, 7, 10)
+            created_at=self._at(2026, 7, 10, 9)
         )
 
         sale = Sale.objects.create()
@@ -70,49 +49,58 @@ class GoldMovementReportTests(TestCase):
             quantity=1,
         )
         Sale.objects.filter(pk=sale.pk).update(
-            created_at=self._at_noon(2026, 7, 11)
+            created_at=self._at(2026, 7, 10, 11)
         )
 
         response = self.client.get(reverse("accounting:gold_movement"), {
             "from": "2026-07-10",
-            "to": "2026-07-12",
+            "to": "2026-07-10",
         })
 
         self.assertEqual(response.status_code, 200)
         rows = response.context["rows"]
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 2)
 
-        self.assertEqual(rows[0]["movements"][0]["received"], "4.000")
-        self.assertEqual(rows[0]["movements"][1]["received"], "20.000")
-        self.assertEqual(rows[0]["movements"][2]["received"], "0.000")
-        self.assertEqual(rows[0]["fine_received"], "20.500")
+        self.assertEqual(rows[0]["kind"], "Purchase")
+        self.assertEqual(rows[0]["received"], "4.000")
+        self.assertEqual(rows[0]["out"], "—")
+        self.assertEqual(rows[0]["balance"], "4.000")
 
-        self.assertEqual(rows[1]["movements"][1]["out"], "10.000")
-        self.assertEqual(rows[1]["movements"][1]["net"], "-10.000")
-        self.assertEqual(rows[1]["fine_out"], "8.750")
-        self.assertEqual(rows[1]["fine_net"], "-8.750")
+        self.assertEqual(rows[1]["kind"], "Sale")
+        self.assertEqual(rows[1]["received"], "—")
+        self.assertEqual(rows[1]["out"], "2.000")
+        self.assertEqual(rows[1]["balance"], "2.000")
 
-        self.assertEqual(rows[2]["fine_received"], "0.000")
-        self.assertEqual(rows[2]["fine_out"], "0.000")
-        self.assertEqual(response.context["total_fine_received"], "20.500")
-        self.assertEqual(response.context["total_fine_out"], "8.750")
-        self.assertEqual(response.context["total_fine_net"], "11.750")
+        summary_21k = response.context["summaries"][1]
+        self.assertEqual(summary_21k["received"], "4.000")
+        self.assertEqual(summary_21k["out"], "2.000")
+        self.assertEqual(summary_21k["closing"], "2.000")
 
-        # The opening-stock line must not appear as 24K received movement.
-        self.assertEqual(response.context["totals"][2]["received"], "0.000")
-
-    def test_date_filter_excludes_movements_outside_the_period(self):
-        purchase = Purchase.objects.create()
+    def test_filtered_ledger_carries_forward_opening_balance(self):
+        opening = Purchase.objects.create(is_opening=True)
         PurchaseLine.objects.create(
-            purchase=purchase,
-            name="21K bracelet",
-            karat=21,
-            weight_grams=Decimal("7.500"),
+            purchase=opening,
+            name="Opening 18K gold",
+            karat=18,
+            weight_grams=Decimal("3.000"),
             unit_cost=Decimal("1500.00"),
             quantity=1,
         )
+        Purchase.objects.filter(pk=opening.pk).update(
+            created_at=self._at(2026, 6, 30, 12)
+        )
+
+        purchase = Purchase.objects.create()
+        PurchaseLine.objects.create(
+            purchase=purchase,
+            name="18K ring",
+            karat=18,
+            weight_grams=Decimal("2.000"),
+            unit_cost=Decimal("1000.00"),
+            quantity=2,
+        )
         Purchase.objects.filter(pk=purchase.pk).update(
-            created_at=self._at_noon(2026, 6, 30)
+            created_at=self._at(2026, 7, 1, 9)
         )
 
         response = self.client.get(reverse("accounting:gold_movement"), {
@@ -120,8 +108,16 @@ class GoldMovementReportTests(TestCase):
             "to": "2026-07-01",
         })
 
-        self.assertEqual(response.context["total_fine_received"], "0.000")
-        self.assertEqual(response.context["rows"][0]["movements"][1]["received"], "0.000")
+        rows = response.context["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kind"], "Purchase")
+        self.assertEqual(rows[0]["received"], "4.000")
+        self.assertEqual(rows[0]["balance"], "7.000")
+
+        summary_18k = response.context["summaries"][0]
+        self.assertEqual(summary_18k["opening"], "3.000")
+        self.assertEqual(summary_18k["received"], "4.000")
+        self.assertEqual(summary_18k["closing"], "7.000")
 
     def test_report_requires_accounting_view_permission(self):
         user_without_permission = get_user_model().objects.create_user(

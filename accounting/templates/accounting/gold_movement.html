@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Gold Movement — Jewelry ERP{% endblock %}
+{% block title %}Gold Transaction Log — Jewelry ERP{% endblock %}
 
 {% block head %}
 <style>
@@ -8,39 +8,42 @@
     .filters .field { display:flex; flex-direction:column; }
     .filters input { min-width:160px; }
 
-    .summary { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-top:20px; }
-    .summary .card { padding:17px 18px; }
-    .summary .label { color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
-    .summary .value { font-size:24px; font-weight:800; margin-top:5px; white-space:nowrap; }
+    .balances { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-top:20px; }
+    .balances .card { padding:17px 18px; }
+    .balances .label { color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+    .balances .value { font-size:24px; font-weight:800; margin-top:5px; white-space:nowrap; }
 
     .table-wrap { overflow-x:auto; }
-    table.movement { width:100%; border-collapse:collapse; min-width:1180px; font-size:13px; }
-    table.movement th { color:var(--muted); font-size:11px; letter-spacing:.04em; padding:7px 9px; text-align:right; text-transform:uppercase; white-space:nowrap; }
-    table.movement th.date, table.movement td.date { position:sticky; left:0; background:var(--panel); text-align:left; min-width:125px; z-index:1; }
-    table.movement th.group { color:var(--gold); text-align:center; border-bottom:1px solid var(--line); }
-    table.movement td { border-bottom:1px solid var(--line); padding:8px 9px; text-align:right; white-space:nowrap; }
-    table.movement tr.total td { border-top:2px solid var(--line); border-bottom:none; color:var(--gold); font-weight:800; }
-    table.movement tr.total td.date { color:var(--ink); }
-    .received { color:var(--good); }
-    .out { color:#b13a32; }
-    .positive { color:var(--good); font-weight:700; }
-    .negative { color:#b13a32; font-weight:700; }
-    .zero { color:var(--muted); opacity:.55; }
-    .note { border-left:3px solid var(--gold); padding-left:12px; }
+    table.ledger { width:100%; border-collapse:collapse; min-width:820px; font-size:14px; }
+    table.ledger th { color:var(--muted); font-size:11px; letter-spacing:.04em; padding:0 10px 8px; text-align:left; text-transform:uppercase; white-space:nowrap; }
+    table.ledger th.num, table.ledger td.num { text-align:right; }
+    table.ledger td { border-bottom:1px solid var(--line); padding:10px; vertical-align:middle; }
+    table.ledger tbody tr:last-child td { border-bottom:none; }
+    .transaction { display:inline-block; border-radius:999px; font-size:11px; font-weight:800; padding:4px 8px; text-transform:uppercase; }
+    .transaction.purchase { background:var(--good-bg); color:var(--good); }
+    .transaction.sale { background:#fbe9e7; color:#a9342d; }
+    .transaction.opening { background:rgba(169,129,47,.14); color:var(--gold); }
+    .received { color:var(--good); font-weight:700; }
+    .out { color:#b13a32; font-weight:700; }
+    .positive { color:var(--gold); font-weight:800; }
+    .negative { color:#b13a32; font-weight:800; }
+    .summary-table { max-width:660px; }
+    .summary-table th { color:var(--muted); font-size:11px; text-transform:uppercase; }
+    .summary-table th, .summary-table td { padding:9px 10px; text-align:right; border-bottom:1px solid var(--line); }
+    .summary-table th:first-child, .summary-table td:first-child { text-align:left; }
 
     @media (prefers-color-scheme: dark) {
+        .transaction.sale { background:#3b1c19; color:#f08a82; }
         .out, .negative { color:#f08a82; }
     }
     @media (max-width:650px) {
-        .summary { grid-template-columns:1fr; }
+        .balances { grid-template-columns:1fr; }
     }
     @media print {
         .topbar, .filters, .no-print { display:none !important; }
         .page { max-width:none; padding:0; }
         .card { border:none; padding:0; }
-        table.movement { min-width:0; font-size:9px; }
-        table.movement th, table.movement td { padding:4px; }
-        table.movement th.date, table.movement td.date { position:static; }
+        table.ledger { min-width:0; font-size:11px; }
     }
 </style>
 {% endblock %}
@@ -48,8 +51,8 @@
 {% block content %}
 <div class="head-row">
     <div>
-        <h1 style="margin-bottom:2px;">Gold Movement</h1>
-        <div class="sub">Net gold weight received and out each day, regardless of item type.</div>
+        <h1 style="margin-bottom:2px;">Gold Transaction Log</h1>
+        <div class="sub">Every gold purchase and sale in time order, with the balance after each transaction.</div>
     </div>
     <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" class="btn ghost" onclick="window.print()">Print</button>
@@ -69,64 +72,72 @@
     <button type="submit" class="btn">Apply</button>
 </form>
 
-<div class="summary">
+<div class="balances">
+    {% for summary in summaries %}
     <div class="card">
-        <div class="label">Fine gold received</div>
-        <div class="value received">{{ total_fine_received }} g</div>
+        <div class="label">Closing {{ summary.karat }}K balance</div>
+        <div class="value {{ summary.closing_class }}">{{ summary.closing }} g</div>
     </div>
-    <div class="card">
-        <div class="label">Fine gold out</div>
-        <div class="value out">{{ total_fine_out }} g</div>
-    </div>
-    <div class="card">
-        <div class="label">Net fine-gold movement</div>
-        <div class="value {{ total_fine_net_class }}">{{ total_fine_net }} g</div>
-    </div>
+    {% endfor %}
 </div>
 
 <div class="card table-wrap" style="margin-top:20px;">
-    <table class="movement">
+    <table class="ledger">
         <thead>
             <tr>
-                <th class="date" rowspan="2">Date</th>
-                {% for karat in karats %}<th class="group" colspan="3">{{ karat }}K weight (g)</th>{% endfor %}
-                <th class="group" colspan="3">Fine gold equivalent (g)</th>
-            </tr>
-            <tr>
-                {% for karat in karats %}<th>Received</th><th>Out</th><th>Net</th>{% endfor %}
-                <th>Received</th><th>Out</th><th>Net</th>
+                <th>Date &amp; time</th>
+                <th>Transaction</th>
+                <th>Reference</th>
+                <th class="num">Karat</th>
+                <th class="num">Gold received (g)</th>
+                <th class="num">Gold out (g)</th>
+                <th class="num">Running balance (g)</th>
             </tr>
         </thead>
         <tbody>
         {% for row in rows %}
             <tr>
-                <td class="date">{{ row.date|date:"D, d M Y" }}</td>
-                {% for movement in row.movements %}
-                    <td class="received">{{ movement.received }}</td>
-                    <td class="out">{{ movement.out }}</td>
-                    <td class="{{ movement.net_class }}">{{ movement.net }}</td>
-                {% endfor %}
-                <td class="received">{{ row.fine_received }}</td>
-                <td class="out">{{ row.fine_out }}</td>
-                <td class="{{ row.fine_net_class }}">{{ row.fine_net }}</td>
+                <td>{{ row.occurred_at|date:"d M Y, H:i" }}</td>
+                <td><span class="transaction {{ row.kind_class }}">{{ row.kind }}</span></td>
+                <td>
+                    <div style="font-weight:700;">{{ row.reference }}</div>
+                    {% if row.party %}<div class="sub">{{ row.party }}</div>{% endif %}
+                </td>
+                <td class="num">{{ row.karat }}K</td>
+                <td class="num received">{{ row.received }}</td>
+                <td class="num out">{{ row.out }}</td>
+                <td class="num {{ row.balance_class }}">{{ row.balance }}</td>
             </tr>
+        {% empty %}
+            <tr><td colspan="7" class="sub">No gold purchases or sales in this period.</td></tr>
         {% endfor %}
-            <tr class="total">
-                <td class="date">Period total</td>
-                {% for movement in totals %}
-                    <td>{{ movement.received }}</td>
-                    <td>{{ movement.out }}</td>
-                    <td class="{{ movement.net_class }}">{{ movement.net }}</td>
-                {% endfor %}
-                <td>{{ total_fine_received }}</td>
-                <td>{{ total_fine_out }}</td>
-                <td class="{{ total_fine_net_class }}">{{ total_fine_net }}</td>
-            </tr>
         </tbody>
     </table>
 </div>
 
-<p class="sub note" style="margin-top:16px;">
-    Fine gold equivalent converts each karat to pure-gold weight (for example, 24 g of 18K equals 18 g fine gold). Opening-stock imports are excluded because they are starting inventory, not gold received during the period.
+<div class="card" style="margin-top:20px;">
+    <h2>Period balance summary</h2>
+    <div class="table-wrap">
+        <table class="summary-table">
+            <thead>
+                <tr><th>Karat</th><th>Opening</th><th>Received</th><th>Out</th><th>Closing</th></tr>
+            </thead>
+            <tbody>
+            {% for summary in summaries %}
+                <tr>
+                    <td style="font-weight:700;">{{ summary.karat }}K</td>
+                    <td>{{ summary.opening }}</td>
+                    <td class="received">{{ summary.received }}</td>
+                    <td class="out">{{ summary.out }}</td>
+                    <td class="{{ summary.closing_class }}">{{ summary.closing }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<p class="sub" style="margin-top:14px;">
+    The running balance is kept separately for 18K, 21K, and 24K gold. The opening column carries all earlier purchases, opening stock, and sales into the selected period.
 </p>
 {% endblock %}

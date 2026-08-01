@@ -1,9 +1,6 @@
-from collections import defaultdict
-from datetime import timedelta
 from decimal import Decimal
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Sum
-from django.db.models.functions import TruncDate
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -224,7 +221,7 @@ def inventory_report(request):
 
 @require_perm("accounting.view_account")
 def gold_movement(request):
-    """Daily gold received and sold, separated by karat and as fine gold."""
+    """Chronological gold ledger with a running physical-weight balance."""
     today = timezone.localdate()
     date_from = parse_date(request.GET.get("from") or "") or today.replace(day=1)
     date_to = parse_date(request.GET.get("to") or "") or today
@@ -235,109 +232,148 @@ def gold_movement(request):
 
     zero = Decimal("0.000")
     karats = [18, 21, 24]
-    daily = defaultdict(lambda: {
-        karat: {"received": zero, "out": zero} for karat in karats
-    })
 
     purchase_weight = ExpressionWrapper(
         F("weight_grams") * F("quantity"),
         output_field=DecimalField(max_digits=18, decimal_places=3),
     )
-    purchase_rows = (
+
+    # The ledger must carry its balance into the selected period. Opening-stock
+    # imports are included here because they establish the physical gold held.
+    opening_balances = {karat: zero for karat in karats}
+    opening_purchase_rows = (
         PurchaseLine.objects
-        .filter(
-            purchase__is_opening=False,
-            purchase__created_at__date__range=(date_from, date_to),
-        )
-        .annotate(day=TruncDate("purchase__created_at"))
-        .values("day", "karat")
+        .filter(purchase__created_at__date__lt=date_from)
+        .values("karat")
         .annotate(weight=Sum(purchase_weight))
         .order_by()
     )
-    for result in purchase_rows:
+    for result in opening_purchase_rows:
         if result["karat"] in karats:
-            daily[result["day"]][result["karat"]]["received"] = result["weight"] or zero
+            opening_balances[result["karat"]] += result["weight"] or zero
 
     sale_weight = ExpressionWrapper(
         F("item__weight_grams") * F("quantity"),
         output_field=DecimalField(max_digits=18, decimal_places=3),
     )
-    sale_rows = (
+    opening_sale_rows = (
         SaleLine.objects
-        .filter(sale__created_at__date__range=(date_from, date_to))
-        .annotate(day=TruncDate("sale__created_at"))
-        .values("day", "item__karat")
+        .filter(sale__created_at__date__lt=date_from)
+        .values("item__karat")
         .annotate(weight=Sum(sale_weight))
         .order_by()
     )
-    for result in sale_rows:
+    for result in opening_sale_rows:
         karat = result["item__karat"]
         if karat in karats:
-            daily[result["day"]][karat]["out"] = result["weight"] or zero
+            opening_balances[karat] -= result["weight"] or zero
 
-    raw_totals = {
+    # One row per business transaction and karat. Multiple jewelry items of the
+    # same karat on one purchase or sale are deliberately combined.
+    events = []
+    period_purchase_rows = (
+        PurchaseLine.objects
+        .filter(purchase__created_at__date__range=(date_from, date_to))
+        .values(
+            "purchase_id",
+            "purchase__created_at",
+            "purchase__is_opening",
+            "purchase__supplier__name",
+            "karat",
+        )
+        .annotate(weight=Sum(purchase_weight))
+        .order_by()
+    )
+    for result in period_purchase_rows:
+        is_opening = result["purchase__is_opening"]
+        events.append({
+            "occurred_at": result["purchase__created_at"],
+            "sort_order": 0,
+            "source_id": result["purchase_id"],
+            "kind": "Opening stock" if is_opening else "Purchase",
+            "kind_class": "opening" if is_opening else "purchase",
+            "reference": (
+                f"Opening stock #{result['purchase_id']}"
+                if is_opening else f"Purchase #{result['purchase_id']}"
+            ),
+            "party": result["purchase__supplier__name"] or "",
+            "karat": result["karat"],
+            "received_raw": result["weight"] or zero,
+            "out_raw": zero,
+        })
+
+    period_sale_rows = (
+        SaleLine.objects
+        .filter(sale__created_at__date__range=(date_from, date_to))
+        .values(
+            "sale_id",
+            "sale__created_at",
+            "sale__customer__name",
+            "item__karat",
+        )
+        .annotate(weight=Sum(sale_weight))
+        .order_by()
+    )
+    for result in period_sale_rows:
+        events.append({
+            "occurred_at": result["sale__created_at"],
+            "sort_order": 1,
+            "source_id": result["sale_id"],
+            "kind": "Sale",
+            "kind_class": "sale",
+            "reference": f"Sale #{result['sale_id']}",
+            "party": result["sale__customer__name"] or "Walk-in customer",
+            "karat": result["item__karat"],
+            "received_raw": zero,
+            "out_raw": result["weight"] or zero,
+        })
+
+    events.sort(key=lambda event: (
+        event["occurred_at"],
+        event["sort_order"],
+        event["source_id"],
+        event["karat"],
+    ))
+
+    running_balances = dict(opening_balances)
+    period_totals = {
         karat: {"received": zero, "out": zero} for karat in karats
     }
     rows = []
-    day = date_from
-    while day <= date_to:
-        movements = []
-        fine_received = zero
-        fine_out = zero
-
-        for karat in karats:
-            received = daily[day][karat]["received"]
-            weight_out = daily[day][karat]["out"]
-            net = received - weight_out
-            fine_received += received * Decimal(karat) / Decimal("24")
-            fine_out += weight_out * Decimal(karat) / Decimal("24")
-            raw_totals[karat]["received"] += received
-            raw_totals[karat]["out"] += weight_out
-            movements.append({
-                "received": _weight(received),
-                "out": _weight(weight_out),
-                "net": _weight(net),
-                "net_class": "positive" if net > 0 else "negative" if net < 0 else "zero",
-            })
-
-        fine_net = fine_received - fine_out
+    for event in events:
+        karat = event["karat"]
+        if karat not in karats:
+            continue
+        received = event["received_raw"]
+        weight_out = event["out_raw"]
+        running_balances[karat] += received - weight_out
+        period_totals[karat]["received"] += received
+        period_totals[karat]["out"] += weight_out
         rows.append({
-            "date": day,
-            "movements": movements,
-            "fine_received": _weight(fine_received),
-            "fine_out": _weight(fine_out),
-            "fine_net": _weight(fine_net),
-            "fine_net_class": "positive" if fine_net > 0 else "negative" if fine_net < 0 else "zero",
+            **event,
+            "received": _weight(received) if received else "—",
+            "out": _weight(weight_out) if weight_out else "—",
+            "balance": _weight(running_balances[karat]),
+            "balance_class": "negative" if running_balances[karat] < 0 else "positive",
         })
-        day += timedelta(days=1)
 
-    totals = []
-    total_fine_received = zero
-    total_fine_out = zero
+    summaries = []
     for karat in karats:
-        received = raw_totals[karat]["received"]
-        weight_out = raw_totals[karat]["out"]
-        net = received - weight_out
-        total_fine_received += received * Decimal(karat) / Decimal("24")
-        total_fine_out += weight_out * Decimal(karat) / Decimal("24")
-        totals.append({
-            "received": _weight(received),
-            "out": _weight(weight_out),
-            "net": _weight(net),
-            "net_class": "positive" if net > 0 else "negative" if net < 0 else "zero",
+        closing = running_balances[karat]
+        summaries.append({
+            "karat": karat,
+            "opening": _weight(opening_balances[karat]),
+            "received": _weight(period_totals[karat]["received"]),
+            "out": _weight(period_totals[karat]["out"]),
+            "closing": _weight(closing),
+            "closing_class": "negative" if closing < 0 else "positive",
         })
 
-    total_fine_net = total_fine_received - total_fine_out
     return render(request, "accounting/gold_movement.html", {
         "rows": rows,
-        "karats": karats,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
-        "totals": totals,
-        "total_fine_received": _weight(total_fine_received),
-        "total_fine_out": _weight(total_fine_out),
-        "total_fine_net": _weight(total_fine_net),
-        "total_fine_net_class": "positive" if total_fine_net > 0 else "negative" if total_fine_net < 0 else "zero",
+        "summaries": summaries,
     })
 
 
