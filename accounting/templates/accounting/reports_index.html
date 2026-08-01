@@ -14,6 +14,10 @@
 {% block content %}
 <h1>Reports</h1>
 
+<a class="report-line" href="{% url 'accounting:gold_movement' %}">
+    <div><div class="title">Gold Movement</div><div class="desc">Daily net gold weight received and out, separated by karat</div></div>
+    <span class="arrow">→</span>
+</a>
 <a class="report-line" href="{% url 'accounting:trial_balance' %}">
     <div><div class="title">Trial Balance</div><div class="desc">Every account's debit &amp; credit — proves the books balance</div></div>
     <span class="arrow">→</span>

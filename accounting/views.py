@@ -1,6 +1,9 @@
+from collections import defaultdict
+from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import DecimalField, ExpressionWrapper, F, Sum
+from django.db.models.functions import TruncDate
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -8,6 +11,8 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from inventory.models import JewelryItem
+from purchases.models import PurchaseLine
+from sales.models import SaleLine
 from .models import Account, JournalLine
 
 
@@ -25,6 +30,10 @@ def require_perm(perm):
 
 def _money(x):
     return f"{x:,.2f}"
+
+
+def _weight(x):
+    return f"{x:,.3f}"
 
 
 def _by_type(t):
@@ -210,6 +219,125 @@ def inventory_report(request):
         "rows": rows,
         "total_cost": _money(total_cost),
         "item_count": items.count(),
+    })
+
+
+@require_perm("accounting.view_account")
+def gold_movement(request):
+    """Daily gold received and sold, separated by karat and as fine gold."""
+    today = timezone.localdate()
+    date_from = parse_date(request.GET.get("from") or "") or today.replace(day=1)
+    date_to = parse_date(request.GET.get("to") or "") or today
+
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+        messages.info(request, "The dates were reversed, so they have been put in chronological order.")
+
+    zero = Decimal("0.000")
+    karats = [18, 21, 24]
+    daily = defaultdict(lambda: {
+        karat: {"received": zero, "out": zero} for karat in karats
+    })
+
+    purchase_weight = ExpressionWrapper(
+        F("weight_grams") * F("quantity"),
+        output_field=DecimalField(max_digits=18, decimal_places=3),
+    )
+    purchase_rows = (
+        PurchaseLine.objects
+        .filter(
+            purchase__is_opening=False,
+            purchase__created_at__date__range=(date_from, date_to),
+        )
+        .annotate(day=TruncDate("purchase__created_at"))
+        .values("day", "karat")
+        .annotate(weight=Sum(purchase_weight))
+        .order_by()
+    )
+    for result in purchase_rows:
+        if result["karat"] in karats:
+            daily[result["day"]][result["karat"]]["received"] = result["weight"] or zero
+
+    sale_weight = ExpressionWrapper(
+        F("item__weight_grams") * F("quantity"),
+        output_field=DecimalField(max_digits=18, decimal_places=3),
+    )
+    sale_rows = (
+        SaleLine.objects
+        .filter(sale__created_at__date__range=(date_from, date_to))
+        .annotate(day=TruncDate("sale__created_at"))
+        .values("day", "item__karat")
+        .annotate(weight=Sum(sale_weight))
+        .order_by()
+    )
+    for result in sale_rows:
+        karat = result["item__karat"]
+        if karat in karats:
+            daily[result["day"]][karat]["out"] = result["weight"] or zero
+
+    raw_totals = {
+        karat: {"received": zero, "out": zero} for karat in karats
+    }
+    rows = []
+    day = date_from
+    while day <= date_to:
+        movements = []
+        fine_received = zero
+        fine_out = zero
+
+        for karat in karats:
+            received = daily[day][karat]["received"]
+            weight_out = daily[day][karat]["out"]
+            net = received - weight_out
+            fine_received += received * Decimal(karat) / Decimal("24")
+            fine_out += weight_out * Decimal(karat) / Decimal("24")
+            raw_totals[karat]["received"] += received
+            raw_totals[karat]["out"] += weight_out
+            movements.append({
+                "received": _weight(received),
+                "out": _weight(weight_out),
+                "net": _weight(net),
+                "net_class": "positive" if net > 0 else "negative" if net < 0 else "zero",
+            })
+
+        fine_net = fine_received - fine_out
+        rows.append({
+            "date": day,
+            "movements": movements,
+            "fine_received": _weight(fine_received),
+            "fine_out": _weight(fine_out),
+            "fine_net": _weight(fine_net),
+            "fine_net_class": "positive" if fine_net > 0 else "negative" if fine_net < 0 else "zero",
+        })
+        day += timedelta(days=1)
+
+    totals = []
+    total_fine_received = zero
+    total_fine_out = zero
+    for karat in karats:
+        received = raw_totals[karat]["received"]
+        weight_out = raw_totals[karat]["out"]
+        net = received - weight_out
+        total_fine_received += received * Decimal(karat) / Decimal("24")
+        total_fine_out += weight_out * Decimal(karat) / Decimal("24")
+        totals.append({
+            "received": _weight(received),
+            "out": _weight(weight_out),
+            "net": _weight(net),
+            "net_class": "positive" if net > 0 else "negative" if net < 0 else "zero",
+        })
+
+    total_fine_net = total_fine_received - total_fine_out
+    return render(request, "accounting/gold_movement.html", {
+        "rows": rows,
+        "karats": karats,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "totals": totals,
+        "total_fine_received": _weight(total_fine_received),
+        "total_fine_out": _weight(total_fine_out),
+        "total_fine_net": _weight(total_fine_net),
+        "total_fine_net_class": "positive" if total_fine_net > 0 else "negative" if total_fine_net < 0 else "zero",
     })
 
 
