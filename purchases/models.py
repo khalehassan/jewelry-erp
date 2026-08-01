@@ -22,10 +22,13 @@ class Supplier(models.Model):
 class Purchase(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="purchases")
     on_credit = models.BooleanField(default=False, help_text="Bought on credit (you owe the supplier)")
+    is_opening = models.BooleanField(default=False, help_text="Stock you already owned, brought onto the books (e.g. a CSV import)")
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
+        if self.is_opening:
+            return f"Opening stock #{self.pk}"
         who = self.supplier.name if self.supplier else "Cash purchase"
         return f"Purchase #{self.pk} — {who}"
 
@@ -38,12 +41,18 @@ class Purchase(models.Model):
             return
         from accounting.services import create_entry
         total = self.total
-        payable = "2000" if self.on_credit else "1000"
+        if self.is_opening:
+            # Stock you already owned: the owner put it there, so credit Owner's Equity
+            credit_account = "3000"
+            description = f"Opening stock #{self.pk}"
+        else:
+            credit_account = "2000" if self.on_credit else "1000"
+            description = f"Purchase #{self.pk}"
         lines = [
             ("1200", total, Decimal("0.00")),
-            (payable, Decimal("0.00"), total),
+            (credit_account, Decimal("0.00"), total),
         ]
-        entry = create_entry(self.created_at.date(), f"Purchase #{self.pk}", lines)
+        entry = create_entry(self.created_at.date(), description, lines)
         self.journal_entry = entry
         self.save(update_fields=["journal_entry"])
 

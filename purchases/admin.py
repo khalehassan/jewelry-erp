@@ -24,8 +24,8 @@ class PurchaseLineInline(admin.TabularInline):
 @admin.register(Purchase)
 class PurchaseAdmin(admin.ModelAdmin):
     inlines = [PurchaseLineInline]
-    list_display = ("id", "supplier", "on_credit", "created_at", "total_display")
-    list_filter = ("supplier", "on_credit")
+    list_display = ("id", "supplier", "is_opening", "on_credit", "created_at", "total_display")
+    list_filter = ("supplier", "on_credit", "is_opening")
     readonly_fields = ("total_display", "created_at", "journal_entry")
 
     def save_related(self, request, form, formsets, change):

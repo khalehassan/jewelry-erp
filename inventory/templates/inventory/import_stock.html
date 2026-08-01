@@ -25,4 +25,21 @@
         <button type="submit" class="btn" style="margin-top:14px;">Upload &amp; Import</button>
     </form>
 </div>
+
+<div class="card" style="margin-top:22px;">
+    <h2>Past imports</h2>
+    <p class="sub">Each import is one “Opening stock” purchase. Open it and delete it to remove that whole batch — its jewelry items and its journal entry go with it.</p>
+    <table class="list">
+        {% for b in imports %}
+        <tr>
+            <td><a href="/admin/purchases/purchase/{{ b.id }}/change/">Opening stock #{{ b.id }}</a></td>
+            <td class="sub">{{ b.created_at|date:"d M Y, H:i" }}</td>
+            <td>{{ b.count }} item(s)</td>
+            <td class="num">{{ b.total }}</td>
+        </tr>
+        {% empty %}
+        <tr><td class="sub">No imports yet.</td></tr>
+        {% endfor %}
+    </table>
+</div>
 {% endblock %}

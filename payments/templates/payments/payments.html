@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Payments — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>
+    .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:22px; }
+    .pay-form select, .pay-form input { width:100%; }
+    .settled { color:var(--good); font-weight:700; }
+    table.list th { text-align:left; font-size:13px; color:var(--muted); padding:0 0 8px; border-bottom:1px solid var(--line); }
+    table.list th.num { text-align:right; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Payments</h1>
+<p class="sub" style="margin-top:-10px;">Record money received from customers and money paid to suppliers. Each payment posts to the ledger automatically.</p>
+
+<div class="cols">
+    <form method="post" class="card pay-form">
+        {% csrf_token %}
+        <input type="hidden" name="kind" value="receive">
+        <h2>Receive from customer</h2>
+
+        <label for="r-customer">Customer</label>
+        <select id="r-customer" name="customer" required>
+            <option value="">— choose —</option>
+            {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+        </select>
+
+        <label for="r-amount">Amount (EGP)</label>
+        <input type="number" id="r-amount" name="amount" step="0.01" min="0.01" required>
+
+        <label for="r-note">Note</label>
+        <input type="text" id="r-note" name="note" placeholder="e.g. cash, instalment 2">
+
+        <button type="submit" class="btn" style="margin-top:20px;">Record receipt</button>
+    </form>
+
+    <form method="post" class="card pay-form">
+        {% csrf_token %}
+        <input type="hidden" name="kind" value="pay">
+        <h2>Pay a supplier</h2>
+
+        <label for="p-supplier">Supplier</label>
+        <select id="p-supplier" name="supplier" required>
+            <option value="">— choose —</option>
+            {% for s in suppliers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
+        </select>
+
+        <label for="p-amount">Amount (EGP)</label>
+        <input type="number" id="p-amount" name="amount" step="0.01" min="0.01" required>
+
+        <label for="p-note">Note</label>
+        <input type="text" id="p-note" name="note" placeholder="e.g. bank transfer">
+
+        <button type="submit" class="btn" style="margin-top:20px;">Record payment</button>
+    </form>
+</div>
+
+<div class="cols" style="margin-top:22px;">
+    <div class="card">
+        <h2>Customers who owe you</h2>
+        <table class="list">
+            <tr><th>Customer</th><th class="num">Credit sales</th><th class="num">Paid</th><th class="num">Outstanding</th></tr>
+            {% for row in customer_rows %}
+            <tr>
+                <td>{{ row.name }}</td>
+                <td class="num">{{ row.billed }}</td>
+                <td class="num">{{ row.paid }}</td>
+                <td class="num {% if row.settled %}settled{% endif %}">{{ row.outstanding }}</td>
+            </tr>
+            {% empty %}
+            <tr><td class="sub">No credit sales yet.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Suppliers you owe</h2>
+        <table class="list">
+            <tr><th>Supplier</th><th class="num">Credit purchases</th><th class="num">Paid</th><th class="num">Outstanding</th></tr>
+            {% for row in supplier_rows %}
+            <tr>
+                <td>{{ row.name }}</td>
+                <td class="num">{{ row.billed }}</td>
+                <td class="num">{{ row.paid }}</td>
+                <td class="num {% if row.settled %}settled{% endif %}">{{ row.outstanding }}</td>
+            </tr>
+            {% empty %}
+            <tr><td class="sub">No credit purchases yet.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card" style="margin-top:22px;">
+    <h2>Recent payments</h2>
+    <table class="list">
+        {% for p in recent %}
+        <tr>
+            <td>{{ p.date|date:"d M Y, H:i" }}</td>
+            <td>{{ p.label }} <strong>{{ p.who }}</strong>{% if p.note %} <span class="sub">— {{ p.note }}</span>{% endif %}</td>
+            <td class="num">{{ p.amount }}</td>
+        </tr>
+        {% empty %}
+        <tr><td class="sub">No payments recorded yet.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

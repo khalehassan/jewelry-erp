@@ -1,0 +1,62 @@
+from decimal import Decimal
+
+from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
+
+
+class Payment(models.Model):
+    class Kind(models.TextChoices):
+        RECEIVE = "receive", "Received from customer"
+        PAY = "pay", "Paid to supplier"
+
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    customer = models.ForeignKey("customers.Customer", on_delete=models.PROTECT, null=True, blank=True, related_name="payments")
+    supplier = models.ForeignKey("purchases.Supplier", on_delete=models.PROTECT, null=True, blank=True, related_name="payments")
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    note = models.CharField(max_length=200, blank=True)
+    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        who = self.customer.name if self.customer else (self.supplier.name if self.supplier else "—")
+        verb = "from" if self.kind == self.Kind.RECEIVE else "to"
+        return f"Payment #{self.pk} — {self.amount} {verb} {who}"
+
+    def post_to_ledger(self):
+        if self.journal_entry_id:
+            return
+        from accounting.services import create_entry
+        amount = self.amount
+        if self.kind == self.Kind.RECEIVE:
+            # Money in: Cash goes up, the customer owes us less
+            who = self.customer.name if self.customer else "customer"
+            lines = [
+                ("1000", amount, Decimal("0.00")),   # Dr Cash
+                ("1100", Decimal("0.00"), amount),   # Cr Accounts Receivable
+            ]
+            description = f"Payment #{self.pk} received from {who}"
+        else:
+            # Money out: we owe the supplier less, Cash goes down
+            who = self.supplier.name if self.supplier else "supplier"
+            lines = [
+                ("2000", amount, Decimal("0.00")),   # Dr Accounts Payable
+                ("1000", Decimal("0.00"), amount),   # Cr Cash
+            ]
+            description = f"Payment #{self.pk} paid to {who}"
+
+        entry = create_entry(self.created_at.date(), description, lines)
+        self.journal_entry = entry
+        self.save(update_fields=["journal_entry"])
+
+
+@receiver(pre_delete, sender=Payment)
+def cleanup_on_payment_delete(sender, instance, **kwargs):
+    je_id = instance.journal_entry_id
+    if je_id:
+        Payment.objects.filter(pk=instance.pk).update(journal_entry=None)
+        from accounting.models import JournalEntry
+        JournalEntry.objects.filter(pk=je_id).delete()
