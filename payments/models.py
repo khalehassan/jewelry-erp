@@ -29,22 +29,23 @@ class Payment(models.Model):
     def post_to_ledger(self):
         if self.journal_entry_id:
             return
+        from accounting import mapping
         from accounting.services import create_entry
         amount = self.amount
         if self.kind == self.Kind.RECEIVE:
             # Money in: Cash goes up, the customer owes us less
             who = self.customer.name if self.customer else "customer"
             lines = [
-                ("1000", amount, Decimal("0.00")),   # Dr Cash
-                ("1100", Decimal("0.00"), amount),   # Cr Accounts Receivable
+                (mapping.CASH, amount, Decimal("0.00")),
+                (mapping.RETAIL_RECEIVABLE, Decimal("0.00"), amount),
             ]
             description = f"Payment #{self.pk} received from {who}"
         else:
             # Money out: we owe the supplier less, Cash goes down
             who = self.supplier.name if self.supplier else "supplier"
             lines = [
-                ("2000", amount, Decimal("0.00")),   # Dr Accounts Payable
-                ("1000", Decimal("0.00"), amount),   # Cr Cash
+                (mapping.SUPPLIER_PAYABLE, amount, Decimal("0.00")),
+                (mapping.CASH, Decimal("0.00"), amount),
             ]
             description = f"Payment #{self.pk} paid to {who}"
 

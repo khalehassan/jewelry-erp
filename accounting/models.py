@@ -18,12 +18,38 @@ class Account(models.Model):
     code = models.CharField(max_length=10, unique=True)
     name = models.CharField(max_length=120)
     type = models.CharField(max_length=20, choices=Type.choices)
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children",
+        help_text="The heading this account sits under, e.g. 1011 Cash on Hand sits under 1010",
+    )
+    is_group = models.BooleanField(
+        default=False,
+        help_text="A heading that totals its children. You cannot post transactions to a group account.",
+    )
 
     class Meta:
         ordering = ["code"]
 
     def __str__(self):
         return f"{self.code} — {self.name}"
+
+    @property
+    def depth(self):
+        """How many headings sit above this account — used to indent the report."""
+        level = 0
+        node = self.parent
+        while node is not None and level < 10:
+            level += 1
+            node = node.parent
+        return level
+
+    @property
+    def descendant_ids(self):
+        """This account's own id plus every account nested underneath it."""
+        ids = [self.pk]
+        for child in self.children.all():
+            ids.extend(child.descendant_ids)
+        return ids
 
     @property
     def balance(self):

@@ -39,21 +39,27 @@ class Purchase(models.Model):
     def post_to_ledger(self):
         if self.journal_entry_id or not self.lines.exists():
             return
+        from collections import defaultdict
+        from accounting import mapping
         from accounting.services import create_entry
-        total = self.total
+
+        # Stock lands in the finished-gold account matching each piece's karat.
+        inventory_by = defaultdict(Decimal)
+        for purchase_line in self.lines.all():
+            inventory_by[mapping.gold_inventory(purchase_line.karat)] += purchase_line.line_total
+
         if self.is_opening:
             # Stock that existed before the books did. Standard practice is to park
             # the other side in Opening Balance Equity, then clear that one account
             # to Owner's Capital once every opening balance is entered.
-            credit_account = "3100"
+            credit_account = mapping.OPENING_BALANCE_EQUITY
             description = f"Opening stock #{self.pk}"
         else:
-            credit_account = "2000" if self.on_credit else "1000"
+            credit_account = mapping.SUPPLIER_PAYABLE if self.on_credit else mapping.CASH
             description = f"Purchase #{self.pk}"
-        lines = [
-            ("1200", total, Decimal("0.00")),
-            (credit_account, Decimal("0.00"), total),
-        ]
+
+        lines = [(code, amount, Decimal("0.00")) for code, amount in inventory_by.items()]
+        lines.append((credit_account, Decimal("0.00"), self.total))
         entry = create_entry(self.created_at.date(), description, lines)
         self.journal_entry = entry
         self.save(update_fields=["journal_entry"])

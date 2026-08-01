@@ -2,34 +2,140 @@
 {% block title %}Trial Balance — Jewelry ERP{% endblock %}
 
 {% block head %}
-<style>a.drill { color:inherit; text-decoration:none; } a.drill:hover { color:var(--gold); text-decoration:underline; }</style>
+<style>
+    a.drill { color:inherit; text-decoration:none; }
+    a.drill:hover { color:var(--gold); text-decoration:underline; }
+
+    .filters { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; }
+    .filters label { margin:0 0 4px; }
+    .filters .field { display:flex; flex-direction:column; }
+    .filters select, .filters input { min-width:150px; }
+
+    .tb-wrap { overflow-x:auto; }
+    table.tb { width:100%; border-collapse:collapse; font-size:14px; min-width:820px; }
+    table.tb th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
+                  padding:0 10px 8px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    table.tb th.acct { text-align:left; }
+    table.tb th.grp { text-align:center; border-bottom:none; padding-bottom:2px; color:var(--gold); }
+    table.tb td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    table.tb td.acct { text-align:left; width:38%; white-space:normal; }
+    table.tb tr.group > td { font-weight:700; background:rgba(169,129,47,.08); }
+    table.tb tr.total td { font-weight:800; color:var(--gold); border-top:2px solid var(--line); border-bottom:none; font-size:15px; }
+    table.tb td.zero { color:var(--muted); opacity:.45; }
+    .twist { display:inline-block; width:14px; color:var(--muted); cursor:pointer; user-select:none; }
+    .warn { background:#fdeaea; border:1px solid #d88; color:#8c1c1c; padding:12px 14px; border-radius:8px; font-weight:700; }
+    @media (prefers-color-scheme: dark) { .warn { background:#3d1a1a; border-color:#a33; color:#ffd9d9; } }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="head-row">
-    <div><h1 style="margin-bottom:2px;">Trial Balance</h1><div class="sub">Click an account to see its transactions</div></div>
+    <div>
+        <h1 style="margin-bottom:2px;">Trial Balance</h1>
+        <div class="sub">Opening balance, movement for the period, and closing balance. Click any account to drill into its transactions.</div>
+    </div>
     <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
 </div>
 
-<div class="card" style="margin-top:20px;">
-    <table class="list">
-        <tr>
-            <td class="sub" style="font-size:12px; text-transform:uppercase;">Account</td>
-            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Debit</td>
-            <td class="sub num" style="font-size:12px; text-transform:uppercase;">Credit</td>
-        </tr>
-        {% for row in trial %}
-        <tr>
-            <td><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.code }} — {{ row.account.name }}</a></td>
-            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.debit }}</a></td>
-            <td class="num"><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.credit }}</a></td>
-        </tr>
+<form method="get" class="card filters" style="margin-top:20px;">
+    <div class="field">
+        <label for="from">From</label>
+        <input type="date" id="from" name="from" value="{{ date_from }}">
+    </div>
+    <div class="field">
+        <label for="to">To</label>
+        <input type="date" id="to" name="to" value="{{ date_to }}">
+    </div>
+    <div class="field">
+        <label for="level">Account level</label>
+        <select id="level" name="level">
+            <option value="all" {% if level == "all" %}selected{% endif %}>All accounts</option>
+            <option value="detail" {% if level == "detail" %}selected{% endif %}>Detail accounts only</option>
+            <option value="summary" {% if level == "summary" %}selected{% endif %}>Main headings only</option>
+        </select>
+    </div>
+    <div class="field">
+        <label for="show">Balance type</label>
+        <select id="show" name="show">
+            <option value="nonzero" {% if show == "nonzero" %}selected{% endif %}>Non-zero accounts</option>
+            <option value="movement" {% if show == "movement" %}selected{% endif %}>Accounts with movement</option>
+            <option value="all" {% if show == "all" %}selected{% endif %}>All accounts</option>
+        </select>
+    </div>
+    <button type="submit" class="btn">Apply</button>
+</form>
+
+{% if not is_balanced %}
+<div class="warn" style="margin-top:20px;">
+    ⚠ Out of balance — total debits and total credits differ by {{ difference }} EGP. Every journal entry should balance; check recent entries.
+</div>
+{% endif %}
+
+<div class="card tb-wrap" style="margin-top:20px;">
+    <table class="tb">
+        <thead>
+            <tr>
+                <th class="acct"></th>
+                <th class="grp" colspan="2">Opening</th>
+                <th class="grp" colspan="2">Period</th>
+                <th class="grp" colspan="2">Closing</th>
+            </tr>
+            <tr>
+                <th class="acct">Account</th>
+                <th>Debit</th><th>Credit</th>
+                <th>Debit</th><th>Credit</th>
+                <th>Debit</th><th>Credit</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr class="{% if row.account.is_group %}group{% endif %}"
+                data-code="{{ row.account.code }}" data-ancestors="{{ row.ancestors }}">
+                <td class="acct" style="padding-left:{{ row.depth }}8px;">
+                    {% if row.account.is_group %}
+                        <span class="twist" data-toggle="{{ row.account.code }}">▾</span>{{ row.account.code }} — {{ row.account.name }}
+                    {% else %}
+                        <span class="twist"></span><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.code }} — {{ row.account.name }}</a>
+                    {% endif %}
+                </td>
+                <td class="{% if row.opening_debit == '0.00' %}zero{% endif %}">{{ row.opening_debit }}</td>
+                <td class="{% if row.opening_credit == '0.00' %}zero{% endif %}">{{ row.opening_credit }}</td>
+                <td class="{% if row.period_debit == '0.00' %}zero{% endif %}">{{ row.period_debit }}</td>
+                <td class="{% if row.period_credit == '0.00' %}zero{% endif %}">{{ row.period_credit }}</td>
+                <td class="{% if row.closing_debit == '0.00' %}zero{% endif %}">{{ row.closing_debit }}</td>
+                <td class="{% if row.closing_credit == '0.00' %}zero{% endif %}">{{ row.closing_credit }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7" class="sub" style="text-align:left;">No accounts match these filters.</td></tr>
         {% endfor %}
-        <tr>
-            <td style="font-weight:800;">Total</td>
-            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_debit }}</td>
-            <td class="num" style="font-weight:800; color:var(--gold);">{{ total_credit }}</td>
-        </tr>
+            <tr class="total">
+                <td class="acct">Total ({{ row_count }} rows shown)</td>
+                <td colspan="4"></td>
+                <td>{{ total_debit }}</td>
+                <td>{{ total_credit }}</td>
+            </tr>
+        </tbody>
     </table>
 </div>
+
+<p class="sub" style="margin-top:14px;">
+    Totals count detail accounts only — a heading shows the total of the accounts nested beneath it, so counting both would double up.
+</p>
+
+<script>
+(function () {
+    const collapsed = new Set();
+    document.querySelectorAll(".twist[data-toggle]").forEach(function (twist) {
+        twist.addEventListener("click", function () {
+            const code = twist.dataset.toggle;
+            if (collapsed.has(code)) { collapsed.delete(code); } else { collapsed.add(code); }
+            twist.textContent = collapsed.has(code) ? "▸" : "▾";
+            document.querySelectorAll("tr[data-ancestors]").forEach(function (tr) {
+                const ancestors = (tr.dataset.ancestors || "").split(" ");
+                tr.style.display = ancestors.some(function (a) { return collapsed.has(a); }) ? "none" : "";
+            });
+        });
+    });
+})();
+</script>
 {% endblock %}

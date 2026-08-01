@@ -7,8 +7,8 @@ from .models import Account, JournalEntry, JournalLine
 
 @admin.register(Account)
 class AccountAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "type", "balance_display")
-    list_filter = ("type",)
+    list_display = ("code", "name", "type", "is_group", "parent", "balance_display")
+    list_filter = ("type", "is_group")
     search_fields = ("code", "name")
 
     @admin.display(description="Balance (EGP)")
@@ -24,6 +24,12 @@ class JournalLineFormSet(forms.BaseInlineFormSet):
         for form in self.forms:
             if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
                 continue
+            account = form.cleaned_data.get("account")
+            if account is not None and account.is_group:
+                raise ValidationError(
+                    f"{account} is a heading, not a postable account. "
+                    f"Choose one of the detail accounts beneath it."
+                )
             total_debit += form.cleaned_data.get("debit") or 0
             total_credit += form.cleaned_data.get("credit") or 0
         if total_debit != total_credit:

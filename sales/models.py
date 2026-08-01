@@ -29,16 +29,30 @@ class Sale(models.Model):
     def post_to_ledger(self):
         if self.journal_entry_id or not self.lines.exists():
             return
+        from collections import defaultdict
+        from accounting import mapping
         from accounting.services import create_entry
-        total = self.total
-        cost = sum((l.item.cost_price * l.quantity for l in self.lines.all()), Decimal("0.00"))
-        receivable = "1100" if self.on_credit else "1000"
-        lines = [
-            (receivable, total, Decimal("0.00")),
-            ("4000", Decimal("0.00"), total),
-            ("5000", cost, Decimal("0.00")),
-            ("1200", Decimal("0.00"), cost),
-        ]
+
+        # Revenue is recorded gross, with any discount shown as its own debit,
+        # so the income statement can present discounts as a deduction.
+        revenue_by = defaultdict(Decimal)
+        cogs_by = defaultdict(Decimal)
+        inventory_by = defaultdict(Decimal)
+        for sale_line in self.lines.all():
+            karat = sale_line.item.karat
+            revenue_by[mapping.gold_revenue(karat)] += sale_line.line_total
+            cost = sale_line.item.cost_price * sale_line.quantity
+            cogs_by[mapping.gold_cogs(karat)] += cost
+            inventory_by[mapping.gold_inventory(karat)] += cost
+
+        money_account = mapping.RETAIL_RECEIVABLE if self.on_credit else mapping.CASH
+        lines = [(money_account, self.total, Decimal("0.00"))]
+        if self.discount > 0:
+            lines.append((mapping.SALES_DISCOUNTS, self.discount, Decimal("0.00")))
+        lines += [(code, Decimal("0.00"), amount) for code, amount in revenue_by.items()]
+        lines += [(code, amount, Decimal("0.00")) for code, amount in cogs_by.items()]
+        lines += [(code, Decimal("0.00"), amount) for code, amount in inventory_by.items()]
+
         entry = create_entry(self.created_at.date(), f"Sale #{self.pk}", lines)
         self.journal_entry = entry
         self.save(update_fields=["journal_entry"])
