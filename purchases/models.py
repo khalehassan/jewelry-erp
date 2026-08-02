@@ -2,10 +2,12 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower, Trim
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 
 from accounting.services import POSTED_LOCK_MESSAGE, deletion_origin_includes
+from config.identity import normalize_party, validate_party_duplicates
 from inventory.models import JewelryItem
 
 
@@ -15,6 +17,34 @@ class Supplier(models.Model):
     email = models.EmailField(blank=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower(Trim("name")),
+                name="supplier_name_normalized_unique",
+            ),
+            models.UniqueConstraint(
+                Trim("phone"),
+                condition=~models.Q(phone=""),
+                name="supplier_phone_normalized_unique",
+            ),
+            models.UniqueConstraint(
+                Lower(Trim("email")),
+                condition=~models.Q(email=""),
+                name="supplier_email_normalized_unique",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        normalize_party(self)
+        validate_party_duplicates(self, "supplier")
+
+    def save(self, *args, **kwargs):
+        normalize_party(self)
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

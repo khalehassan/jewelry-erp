@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 
 from inventory.models import JewelryItem
 from .models import Supplier, Purchase, PurchaseLine
@@ -27,13 +28,18 @@ def new_supplier(request):
         if not name:
             messages.error(request, "Supplier name is required.")
             return redirect("purchases:new_supplier")
-        Supplier.objects.create(
+        supplier = Supplier(
             name=name,
             phone=(request.POST.get("phone") or "").strip(),
             email=(request.POST.get("email") or "").strip(),
             notes=(request.POST.get("notes") or "").strip(),
         )
-        messages.success(request, f"Supplier “{name}” added.")
+        try:
+            supplier.save()
+        except ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+            return redirect("purchases:new_supplier")
+        messages.success(request, f"Supplier “{supplier.name}” added.")
         return redirect("purchases:new_supplier")
 
     return render(request, "purchases/new_supplier.html", {

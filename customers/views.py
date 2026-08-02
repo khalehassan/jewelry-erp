@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 
 from .models import Customer
 
@@ -24,14 +25,19 @@ def new_customer(request):
         if not name:
             messages.error(request, "Customer name is required.")
             return redirect("customers:new_customer")
-        Customer.objects.create(
+        customer = Customer(
             name=name,
             phone=(request.POST.get("phone") or "").strip(),
             email=(request.POST.get("email") or "").strip(),
             address=(request.POST.get("address") or "").strip(),
             notes=(request.POST.get("notes") or "").strip(),
         )
-        messages.success(request, f"Customer “{name}” added.")
+        try:
+            customer.save()
+        except ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+            return redirect("customers:new_customer")
+        messages.success(request, f"Customer “{customer.name}” added.")
         return redirect("customers:new_customer")
 
     return render(request, "customers/new_customer.html", {

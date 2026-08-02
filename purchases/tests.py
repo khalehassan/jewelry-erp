@@ -1,14 +1,45 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import RestrictedError
-from django.test import TransactionTestCase
+from django.test import TestCase, TransactionTestCase
 
 from accounting.models import JournalEntry
 from inventory.models import JewelryItem
 from sales.models import Sale, SaleLine
 
-from .models import Purchase, PurchaseLine
+from .models import Purchase, PurchaseLine, Supplier
+
+
+class SupplierDuplicateTests(TestCase):
+    def test_supplier_identity_is_normalized(self):
+        supplier = Supplier.objects.create(
+            name="  Cairo   Gold  ",
+            phone="(010) 9350-7625",
+            email=" SALES@CAIROGOLD.COM ",
+        )
+
+        self.assertEqual(supplier.name, "Cairo Gold")
+        self.assertEqual(supplier.phone, "01093507625")
+        self.assertEqual(supplier.email, "sales@cairogold.com")
+
+    def test_duplicate_supplier_name_phone_or_email_is_rejected(self):
+        Supplier.objects.create(
+            name="Cairo Gold",
+            phone="01093507625",
+            email="sales@cairogold.com",
+        )
+
+        duplicates = [
+            Supplier(name=" CAIRO   GOLD "),
+            Supplier(name="Different Supplier", phone="0109 350-7625"),
+            Supplier(name="Another Supplier", email="SALES@CAIROGOLD.COM"),
+        ]
+        for duplicate in duplicates:
+            with self.subTest(supplier=duplicate.name):
+                with self.assertRaises(ValidationError):
+                    duplicate.save()
 
 
 class PurchaseInventoryDeletionTests(TransactionTestCase):
