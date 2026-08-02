@@ -2,6 +2,8 @@ from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
+from config.admin_controls import ProtectedFromAdminDeletionMixin
+
 from .models import Supplier, Purchase, PurchaseLine
 
 
@@ -39,7 +41,7 @@ class PurchaseLineInline(admin.TabularInline):
 
 
 @admin.register(Purchase)
-class PurchaseAdmin(admin.ModelAdmin):
+class PurchaseAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     inlines = [PurchaseLineInline]
     list_display = ("id", "supplier", "is_opening", "on_credit", "created_at", "total_display")
     list_filter = ("supplier", "on_credit", "is_opening")

@@ -1,18 +1,94 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from inventory.models import JewelryItem
+from payments.models import Payment
 from purchases.models import Purchase, PurchaseLine
 from sales.models import Sale, SaleLine
 from .models import Account, JournalEntry, JournalLine
 from .services import create_entry
+
+
+class AdminControlTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="admin-controller",
+            password="test-password",
+            email="admin@example.com",
+        )
+        self.client.force_login(self.user)
+        self.request = RequestFactory().get("/admin/")
+        self.request.user = self.user
+        self.item = JewelryItem.objects.create(
+            name="Protected ring",
+            category=JewelryItem.Category.RING,
+            karat=JewelryItem.Karat.K21,
+            weight_grams=Decimal("2.000"),
+            location=JewelryItem.Location.SAFE,
+            cost_price=Decimal("1000.00"),
+            quantity=1,
+        )
+
+    def test_inventory_admin_is_view_only(self):
+        item_admin = admin.site._registry[JewelryItem]
+
+        self.assertFalse(item_admin.has_add_permission(self.request))
+        self.assertFalse(item_admin.has_change_permission(self.request, self.item))
+        self.assertFalse(item_admin.has_delete_permission(self.request, self.item))
+        self.assertNotIn("delete_selected", item_admin.get_actions(self.request))
+
+        change_url = reverse("admin:inventory_jewelryitem_change", args=[self.item.pk])
+        response = self.client.post(change_url, {
+            "name": self.item.name,
+            "barcode": self.item.barcode,
+            "category": self.item.category,
+            "karat": self.item.karat,
+            "weight_grams": "2.000",
+            "stone_details": "",
+            "location": JewelryItem.Location.SHOWCASE,
+            "cost_price": "1000.00",
+            "quantity": "99",
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.location, JewelryItem.Location.SAFE)
+        self.assertEqual(self.item.quantity, 1)
+
+    def test_audit_sensitive_admins_have_no_delete_path(self):
+        protected_models = (JewelryItem, Purchase, Sale, Payment, JournalEntry, Account)
+        for model in protected_models:
+            with self.subTest(model=model.__name__):
+                model_admin = admin.site._registry[model]
+                self.assertFalse(model_admin.has_delete_permission(self.request))
+                self.assertNotIn("delete_selected", model_admin.get_actions(self.request))
+
+    def test_existing_journal_entries_are_view_only(self):
+        entry = JournalEntry.objects.create(description="Protected journal entry")
+        entry_admin = admin.site._registry[JournalEntry]
+
+        self.assertTrue(entry_admin.has_add_permission(self.request))
+        self.assertFalse(entry_admin.has_change_permission(self.request, entry))
+
+        change_url = reverse("admin:accounting_journalentry_change", args=[entry.pk])
+        delete_url = reverse("admin:accounting_journalentry_delete", args=[entry.pk])
+        self.assertEqual(self.client.post(change_url, {
+            "date": "2026-08-02",
+            "description": "Tampered",
+        }).status_code, 403)
+        self.assertEqual(self.client.post(delete_url, {"post": "yes"}).status_code, 403)
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.description, "Protected journal entry")
 
 
 class GoldMovementReportTests(TestCase):

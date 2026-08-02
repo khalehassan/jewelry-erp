@@ -3,6 +3,8 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
+from config.admin_controls import ProtectedFromAdminDeletionMixin
+
 from .models import Sale, SaleLine
 
 
@@ -56,7 +58,7 @@ class SaleLineInline(admin.TabularInline):
 
 
 @admin.register(Sale)
-class SaleAdmin(admin.ModelAdmin):
+class SaleAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     inlines = [SaleLineInline]
     list_display = ("id", "customer", "on_credit", "created_at", "total_display", "receipt_link")
     list_filter = ("customer", "on_credit")

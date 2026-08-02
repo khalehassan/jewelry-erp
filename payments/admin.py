@@ -1,10 +1,12 @@
 from django.contrib import admin
 
+from config.admin_controls import ProtectedFromAdminDeletionMixin
+
 from .models import Payment
 
 
 @admin.register(Payment)
-class PaymentAdmin(admin.ModelAdmin):
+class PaymentAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     list_display = ("id", "created_at", "kind", "customer", "supplier", "amount", "note")
     list_filter = ("kind", "created_at")
     search_fields = ("customer__name", "supplier__name", "note")

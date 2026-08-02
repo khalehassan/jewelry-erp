@@ -2,11 +2,13 @@ from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
+from config.admin_controls import ProtectedFromAdminDeletionMixin
+
 from .models import Account, JournalEntry, JournalLine
 
 
 @admin.register(Account)
-class AccountAdmin(admin.ModelAdmin):
+class AccountAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     list_display = ("code", "name", "type", "is_group", "parent", "balance_display")
     list_filter = ("type", "is_group")
     search_fields = ("code", "name")
@@ -59,10 +61,16 @@ class JournalLineInline(admin.TabularInline):
 
 
 @admin.register(JournalEntry)
-class JournalEntryAdmin(admin.ModelAdmin):
+class JournalEntryAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     inlines = [JournalLineInline]
     list_display = ("id", "date", "description", "total_display")
     readonly_fields = ("created_at",)
+
+    def has_change_permission(self, request, obj=None):
+        # An existing entry is posted history. Corrections require a new entry.
+        if obj is not None:
+            return False
+        return super().has_change_permission(request, obj)
 
     @admin.display(description="Total debits (EGP)")
     def total_display(self, obj):
