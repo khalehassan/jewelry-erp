@@ -1,8 +1,12 @@
-from decimal import Decimal
+from collections import Counter
+from decimal import Decimal, InvalidOperation
+from itertools import zip_longest
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from inventory.models import JewelryItem
@@ -18,35 +22,125 @@ def new_sale(request):
         makings = request.POST.getlist("making")
         qtys = request.POST.getlist("qty")
 
-        for item_id, qty in zip(item_ids, qtys):
-            if not item_id:
-                continue
-            item = JewelryItem.objects.filter(pk=item_id).first()
-            wanted = int(qty or 1)
-            if item and wanted > item.quantity:
-                messages.error(request, f"Not enough stock for “{item.name}” — only {item.quantity} available.")
-                return redirect("sales:new_sale")
+        errors = []
+        try:
+            discount = Decimal(request.POST.get("discount", ""))
+            if not discount.is_finite() or discount < 0:
+                errors.append("Discount cannot be negative.")
+        except (InvalidOperation, TypeError, ValueError):
+            discount = Decimal("0.00")
+            errors.append("Enter a valid discount amount.")
 
-        sale = Sale.objects.create(
-            customer_id=request.POST.get("customer") or None,
-            discount=Decimal(request.POST.get("discount") or 0),
-            on_credit=bool(request.POST.get("on_credit")),
-        )
-        for item_id, gold, making, qty in zip(item_ids, golds, makings, qtys):
-            if not item_id:
+        lines = []
+        for row_number, values in enumerate(zip_longest(
+            item_ids, golds, makings, qtys, fillvalue=""
+        ), start=1):
+            item_id, gold, making, qty = (str(value).strip() for value in values)
+            if not any((item_id, gold, making, qty)):
                 continue
-            SaleLine.objects.create(
-                sale=sale,
-                item_id=item_id,
-                gold_price_per_gram=Decimal(gold or 0),
-                making_charge_per_gram=Decimal(making or 0),
-                quantity=int(qty or 1),
-            )
-        sale.post_to_ledger()
+
+            row_errors = []
+            try:
+                parsed_item_id = int(item_id)
+                parsed_gold = Decimal(gold)
+                parsed_making = Decimal(making or "0")
+                parsed_quantity = int(qty)
+            except (InvalidOperation, TypeError, ValueError):
+                errors.append(
+                    f"Item {row_number}: Select an item and enter valid prices and quantity."
+                )
+                continue
+
+            if not parsed_gold.is_finite() or parsed_gold <= 0:
+                row_errors.append("Gold price per gram must be greater than zero.")
+            if not parsed_making.is_finite() or parsed_making < 0:
+                row_errors.append("Making charge cannot be negative.")
+            if parsed_quantity <= 0:
+                row_errors.append("Quantity must be at least 1.")
+
+            if row_errors:
+                errors.extend(f"Item {row_number}: {error}" for error in row_errors)
+                continue
+            lines.append({
+                "item_id": parsed_item_id,
+                "gold_price_per_gram": parsed_gold,
+                "making_charge_per_gram": parsed_making,
+                "quantity": parsed_quantity,
+            })
+
+        if not lines and not errors:
+            errors.append("A sale must contain at least one item.")
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return redirect("sales:new_sale")
+
+        try:
+            with transaction.atomic():
+                requested_ids = [line["item_id"] for line in lines]
+                items = {
+                    item.pk: item
+                    for item in JewelryItem.objects.select_for_update().filter(
+                        pk__in=requested_ids
+                    )
+                }
+                missing_ids = set(requested_ids) - set(items)
+                if missing_ids:
+                    raise ValidationError("One of the selected inventory items no longer exists.")
+
+                duplicate_ids = [
+                    item_id
+                    for item_id, count in Counter(requested_ids).items()
+                    if count > 1
+                ]
+                if duplicate_ids:
+                    duplicate_names = ", ".join(items[item_id].name for item_id in duplicate_ids)
+                    raise ValidationError(
+                        f"Each inventory item can appear only once. Combine the quantity for: {duplicate_names}."
+                    )
+
+                subtotal = Decimal("0.00")
+                for line in lines:
+                    item = items[line["item_id"]]
+                    if line["quantity"] > item.quantity:
+                        raise ValidationError(
+                            f"Not enough stock for {item.name}: only {item.quantity} available."
+                        )
+                    subtotal += (
+                        item.weight_grams
+                        * (line["gold_price_per_gram"] + line["making_charge_per_gram"])
+                        * line["quantity"]
+                    )
+
+                if subtotal - discount <= 0:
+                    raise ValidationError("Sale total must be greater than zero. Reduce the discount.")
+
+                sale = Sale.objects.create(
+                    customer_id=request.POST.get("customer") or None,
+                    discount=discount,
+                    on_credit=bool(request.POST.get("on_credit")),
+                )
+                for line in lines:
+                    item = items[line["item_id"]]
+                    SaleLine.objects.create(
+                        sale=sale,
+                        item=item,
+                        gold_price_per_gram=line["gold_price_per_gram"],
+                        making_charge_per_gram=line["making_charge_per_gram"],
+                        quantity=line["quantity"],
+                    )
+                sale.post_to_ledger()
+        except ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+            return redirect("sales:new_sale")
+        except IntegrityError:
+            messages.error(request, "The sale could not be saved because one of its values is invalid.")
+            return redirect("sales:new_sale")
+
         messages.success(request, f"Sale #{sale.pk} saved — total {sale.total:,.2f} EGP")
         return redirect("sales:receipt", pk=sale.pk)
 
-    items = JewelryItem.objects.all()
+    items = JewelryItem.objects.filter(quantity__gt=0)
     customers = Customer.objects.all()
     return render(request, "sales/new_sale.html", {"items": items, "customers": customers})
 

@@ -9,13 +9,37 @@ from .models import Sale, SaleLine
 class SaleLineFormSet(forms.BaseInlineFormSet):
     def clean(self):
         super().clean()
-        for form in self.forms:
-            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
-                continue
+        if any(self.errors):
+            return
+
+        active_forms = [
+            form for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get("DELETE")
+        ]
+        if not active_forms:
+            raise ValidationError("A sale must contain at least one item.")
+
+        selected_items = {}
+        subtotal = 0
+        for form in active_forms:
             item = form.cleaned_data.get("item")
             qty = form.cleaned_data.get("quantity") or 0
+            if item and item.pk in selected_items:
+                raise ValidationError(
+                    f"{item.name} appears more than once. Combine it into one line with the total quantity."
+                )
+            if item:
+                selected_items[item.pk] = item
             if item and qty > item.quantity:
                 raise ValidationError(f"Not enough stock for {item.name}: only {item.quantity} available.")
+            gold = form.cleaned_data.get("gold_price_per_gram") or 0
+            making = form.cleaned_data.get("making_charge_per_gram") or 0
+            if item:
+                subtotal += item.weight_grams * (gold + making) * qty
+
+        discount = self.instance.discount or 0
+        if subtotal - discount <= 0:
+            raise ValidationError("Sale total must be greater than zero. Reduce the discount.")
 
 
 class SaleLineInline(admin.TabularInline):

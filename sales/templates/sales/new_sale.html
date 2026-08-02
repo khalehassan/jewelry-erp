@@ -49,7 +49,8 @@
         <tbody id="lines">
             <tr class="line">
                 <td>
-                    <select name="item" class="item">
+                    <select name="item" class="item" required>
+                        <option value="">Select an item</option>
                         {% for item in items %}
                         <option value="{{ item.id }}" data-weight="{{ item.weight_grams }}" data-stock="{{ item.quantity }}">
                             {{ item.name }} — {{ item.karat }}K, {{ item.weight_grams }}g · stock {{ item.quantity }}
@@ -58,9 +59,9 @@
                     </select>
                     <div class="avail"></div>
                 </td>
-                <td><input type="number" name="gold" class="gold" value="0" step="0.01"></td>
-                <td><input type="number" name="making" class="making" value="0" step="0.01"></td>
-                <td><input type="number" name="qty" class="qty" value="1" step="1"></td>
+                <td><input type="number" name="gold" class="gold" step="0.01" min="0.01" required></td>
+                <td><input type="number" name="making" class="making" value="0" step="0.01" min="0" required></td>
+                <td><input type="number" name="qty" class="qty" value="1" step="1" min="1" required></td>
                 <td class="lineTotal">0.00</td>
                 <td><button type="button" class="removeBtn">✕</button></td>
             </tr>
@@ -69,7 +70,7 @@
     <button type="button" class="addBtn" id="addBtn">+ Add item</button>
 
     <label for="discount">Discount (EGP)</label>
-    <input id="discount" name="discount" type="number" value="0" step="0.01" style="width:180px">
+    <input id="discount" name="discount" type="number" value="0" step="0.01" min="0" required style="width:180px">
 
     <label class="checkline"><input type="checkbox" name="on_credit"> On credit (customer owes)</label>
 
@@ -94,37 +95,59 @@
 
     function recalc() {
         let subtotal = 0;
-        linesEl.querySelectorAll(".line").forEach(row => {
+        const rows = Array.from(linesEl.querySelectorAll(".line"));
+        const selectionCounts = {};
+        rows.forEach(row => {
+            const itemId = row.querySelector(".item").value;
+            if (itemId) selectionCounts[itemId] = (selectionCounts[itemId] || 0) + 1;
+        });
+
+        rows.forEach(row => {
             const sel = row.querySelector(".item");
             const opt = sel.options[sel.selectedIndex];
-            const weight = parseFloat(opt.dataset.weight) || 0;
-            const stock = parseInt(opt.dataset.stock) || 0;
+            const qtyInput = row.querySelector(".qty");
+            sel.setCustomValidity("");
+            qtyInput.setCustomValidity("");
+
+            const weight = opt ? (parseFloat(opt.dataset.weight) || 0) : 0;
+            const stock = opt ? (parseInt(opt.dataset.stock) || 0) : 0;
             const gold = parseFloat(row.querySelector(".gold").value) || 0;
             const making = parseFloat(row.querySelector(".making").value) || 0;
-            const qty = parseInt(row.querySelector(".qty").value) || 0;
+            const qty = parseInt(qtyInput.value) || 0;
             const lineTotal = weight * (gold + making) * qty;
             row.querySelector(".lineTotal").textContent = fmt(lineTotal);
             subtotal += lineTotal;
 
             const availEl = row.querySelector(".avail");
-            if (qty > stock) {
+            if (sel.value && selectionCounts[sel.value] > 1) {
+                availEl.textContent = "⚠ This item is repeated — combine it into one line";
+                availEl.classList.add("over");
+                sel.setCustomValidity("Each inventory item can appear only once in a sale.");
+            } else if (sel.value && qty > stock) {
                 availEl.textContent = "⚠ Only " + stock + " in stock";
                 availEl.classList.add("over");
-            } else {
+                qtyInput.setCustomValidity("Quantity exceeds available stock.");
+            } else if (sel.value) {
                 availEl.textContent = "In stock: " + stock;
+                availEl.classList.remove("over");
+            } else {
+                availEl.textContent = "";
                 availEl.classList.remove("over");
             }
         });
         const discount = parseFloat(discountEl.value) || 0;
         subtotalEl.textContent = fmt(subtotal);
         grandTotalEl.textContent = fmt(subtotal - discount);
+        discountEl.setCustomValidity(
+            subtotal - discount <= 0 ? "Sale total must be greater than zero." : ""
+        );
     }
 
     function addLine() {
         const firstRow = linesEl.querySelector(".line");
         const newRow = firstRow.cloneNode(true);
         newRow.querySelector(".item").selectedIndex = 0;
-        newRow.querySelector(".gold").value = 0;
+        newRow.querySelector(".gold").value = "";
         newRow.querySelector(".making").value = 0;
         newRow.querySelector(".qty").value = 1;
         newRow.querySelector(".lineTotal").textContent = "0.00";
