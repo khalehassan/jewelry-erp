@@ -1,9 +1,12 @@
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import RestrictedError
 from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 
 from accounting.models import JournalEntry
 from inventory.models import JewelryItem
@@ -40,6 +43,87 @@ class SupplierDuplicateTests(TestCase):
             with self.subTest(supplier=duplicate.name):
                 with self.assertRaises(ValidationError):
                     duplicate.save()
+
+
+class PurchaseAmountValidationTests(TestCase):
+    def test_model_rejects_zero_and_negative_purchase_values(self):
+        invalid_values = [
+            {"weight_grams": Decimal("0.000")},
+            {"weight_grams": Decimal("-1.000")},
+            {"unit_cost": Decimal("0.00")},
+            {"unit_cost": Decimal("-200.00")},
+            {"quantity": 0},
+            {"quantity": -1},
+        ]
+
+        for overrides in invalid_values:
+            with self.subTest(values=overrides):
+                purchase = Purchase.objects.create()
+                values = {
+                    "purchase": purchase,
+                    "name": "Invalid item",
+                    "karat": 21,
+                    "weight_grams": Decimal("2.000"),
+                    "unit_cost": Decimal("1000.00"),
+                    "quantity": 1,
+                }
+                values.update(overrides)
+                with self.assertRaises(ValidationError):
+                    PurchaseLine.objects.create(**values)
+
+    def test_database_constraint_rejects_bypassed_zero_cost(self):
+        purchase = Purchase.objects.create()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PurchaseLine.objects.bulk_create([PurchaseLine(
+                    purchase=purchase,
+                    name="Bypassed invalid item",
+                    karat=21,
+                    weight_grams=Decimal("2.000"),
+                    unit_cost=Decimal("0.00"),
+                    quantity=1,
+                )])
+
+    def test_empty_purchase_cannot_be_posted(self):
+        purchase = Purchase.objects.create()
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "A purchase must contain at least one item.",
+        ):
+            purchase.post_to_ledger()
+
+    def test_purchase_page_rejects_empty_and_negative_purchases(self):
+        user = get_user_model().objects.create_user("purchase-clerk", password="test")
+        user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="purchases",
+            codename="add_purchase",
+        ))
+        self.client.force_login(user)
+
+        empty_response = self.client.post(
+            reverse("purchases:new_purchase"),
+            {},
+            follow=True,
+        )
+        self.assertContains(empty_response, "A purchase must contain at least one item.")
+
+        negative_response = self.client.post(reverse("purchases:new_purchase"), {
+            "barcode": [""],
+            "name": ["Negative item"],
+            "category": ["ring"],
+            "karat": ["21"],
+            "weight": ["2.000"],
+            "stone": [""],
+            "location": ["safe"],
+            "cost": ["-200.00"],
+            "qty": ["1"],
+        }, follow=True)
+        self.assertContains(negative_response, "Unit cost must be greater than zero.")
+        self.assertEqual(Purchase.objects.count(), 0)
+        self.assertEqual(PurchaseLine.objects.count(), 0)
+        self.assertEqual(JewelryItem.objects.count(), 0)
 
 
 class PurchaseInventoryDeletionTests(TransactionTestCase):

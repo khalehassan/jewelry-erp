@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower, Trim
 from django.db.models.signals import post_save, pre_delete
@@ -75,8 +76,12 @@ class Purchase(models.Model):
         return sum((line.line_total for line in self.lines.all()), Decimal("0.00"))
 
     def post_to_ledger(self):
-        if self.journal_entry_id or not self.lines.exists():
+        if self.journal_entry_id:
             return
+        if not self.lines.exists():
+            raise ValidationError("A purchase must contain at least one item.")
+        if self.total <= 0:
+            raise ValidationError("Purchase total must be greater than zero.")
         from collections import defaultdict
         from accounting import mapping
         from accounting.services import create_entry
@@ -109,12 +114,41 @@ class PurchaseLine(models.Model):
     name = models.CharField(max_length=120, default="")
     category = models.CharField(max_length=20, choices=JewelryItem.Category.choices, default=JewelryItem.Category.RING)
     karat = models.IntegerField(choices=JewelryItem.Karat.choices, default=JewelryItem.Karat.K21)
-    weight_grams = models.DecimalField(max_digits=8, decimal_places=3, default=0)
+    weight_grams = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        default=0,
+        validators=[MinValueValidator(Decimal("0.001"))],
+    )
     stone_details = models.CharField(max_length=200, blank=True, default="")
     location = models.CharField(max_length=20, choices=JewelryItem.Location.choices, default=JewelryItem.Location.SAFE)
-    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    quantity = models.PositiveIntegerField(default=1)
+    unit_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+    )
     created_item = models.ForeignKey(JewelryItem, null=True, blank=True, on_delete=models.RESTRICT, related_name="purchase_lines")
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(weight_grams__gt=0),
+                name="purchase_line_weight_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(unit_cost__gt=0),
+                name="purchase_line_unit_cost_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0),
+                name="purchase_line_quantity_positive",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.quantity} × {self.name}"
@@ -129,6 +163,7 @@ class PurchaseLine(models.Model):
 
     def save(self, *args, **kwargs):
         self._guard_posted(kwargs.get("update_fields"))
+        self.full_clean()
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

@@ -1,4 +1,7 @@
+from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
+
 from .models import Supplier, Purchase, PurchaseLine
 
 
@@ -8,8 +11,22 @@ class SupplierAdmin(admin.ModelAdmin):
     search_fields = ("name", "phone", "email")
 
 
+class PurchaseLineFormSet(forms.BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        active_forms = [
+            form for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get("DELETE")
+        ]
+        if not active_forms:
+            raise ValidationError("A purchase must contain at least one item.")
+
+
 class PurchaseLineInline(admin.TabularInline):
     model = PurchaseLine
+    formset = PurchaseLineFormSet
     extra = 1
     fields = ("barcode", "name", "category", "karat", "weight_grams", "stone_details", "location", "unit_cost", "quantity", "line_total_display")
     readonly_fields = ("line_total_display",)

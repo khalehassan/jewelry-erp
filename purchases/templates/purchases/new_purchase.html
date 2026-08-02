@@ -57,7 +57,7 @@
             <tbody id="lines">
                 <tr class="line">
                     <td><input type="text" name="barcode" placeholder="scan / blank"></td>
-                    <td><input type="text" name="name" class="wide" placeholder="e.g. Gold Ring"></td>
+                    <td><input type="text" name="name" class="wide" placeholder="e.g. Gold Ring" required></td>
                     <td>
                         <select name="category">
                             {% for value, label in categories %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
@@ -68,15 +68,15 @@
                             {% for value, label in karats %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td><input type="number" name="weight" value="0" step="0.001"></td>
+                    <td><input type="number" name="weight" step="0.001" min="0.001" required></td>
                     <td><input type="text" name="stone" placeholder="optional"></td>
                     <td>
                         <select name="location">
                             {% for value, label in locations %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td><input type="number" name="cost" class="cost" value="0" step="0.01"></td>
-                    <td><input type="number" name="qty" class="qty" value="1" step="1"></td>
+                    <td><input type="number" name="cost" class="cost" step="0.01" min="0.01" required></td>
+                    <td><input type="number" name="qty" class="qty" value="1" step="1" min="1" required></td>
                     <td class="lineTotal">0.00</td>
                     <td><button type="button" class="removeBtn">✕</button></td>
                 </tr>
@@ -120,7 +120,7 @@
         const newRow = firstRow.cloneNode(true);
         newRow.querySelectorAll("input").forEach(inp => {
             if (inp.name === "qty") inp.value = 1;
-            else if (inp.type === "number") inp.value = 0;
+            else if (inp.type === "number") inp.value = "";
             else inp.value = "";
         });
         newRow.querySelectorAll("select").forEach(sel => sel.selectedIndex = 0);
