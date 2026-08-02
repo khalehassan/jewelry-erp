@@ -19,22 +19,37 @@ class AccountAdmin(admin.ModelAdmin):
 class JournalLineFormSet(forms.BaseInlineFormSet):
     def clean(self):
         super().clean()
+        if any(self.errors):
+            return
+
+        active_forms = [
+            form for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get("DELETE")
+        ]
+        if len(active_forms) < 2:
+            raise ValidationError("A journal entry must contain at least two posting lines.")
+
         total_debit = 0
         total_credit = 0
-        for form in self.forms:
-            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
-                continue
+        for row_number, form in enumerate(active_forms, start=1):
             account = form.cleaned_data.get("account")
             if account is not None and account.is_group:
                 raise ValidationError(
                     f"{account} is a heading, not a postable account. "
                     f"Choose one of the detail accounts beneath it."
                 )
-            total_debit += form.cleaned_data.get("debit") or 0
-            total_credit += form.cleaned_data.get("credit") or 0
-        if total_debit != total_credit:
+            debit = form.cleaned_data.get("debit") or 0
+            credit = form.cleaned_data.get("credit") or 0
+            if (debit > 0) == (credit > 0):
+                raise ValidationError(
+                    f"Line {row_number} must have a positive amount on exactly one side."
+                )
+            total_debit += debit
+            total_credit += credit
+        if total_debit <= 0 or total_debit != total_credit:
             raise ValidationError(
-                f"Not balanced: debits ({total_debit}) must equal credits ({total_credit})."
+                f"Not balanced: debits ({total_debit}) must equal credits ({total_credit}) "
+                f"and be greater than zero."
             )
 
 class JournalLineInline(admin.TabularInline):

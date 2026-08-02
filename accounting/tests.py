@@ -3,12 +3,16 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from purchases.models import Purchase, PurchaseLine
 from sales.models import Sale, SaleLine
+from .models import Account, JournalEntry, JournalLine
+from .services import create_entry
 
 
 class GoldMovementReportTests(TestCase):
@@ -129,3 +133,165 @@ class GoldMovementReportTests(TestCase):
         response = self.client.get(reverse("accounting:gold_movement"))
 
         self.assertRedirects(response, reverse("sales:dashboard"))
+
+
+class AutomatedPostingControlTests(TestCase):
+    def setUp(self):
+        self.cash = Account.objects.get(code="1011")
+        self.capital = Account.objects.get(code="3010")
+
+    def test_valid_automated_entry_is_rounded_and_balanced_at_egp_precision(self):
+        entry = create_entry(timezone.localdate(), "Valid automated entry", [
+            (self.cash.code, Decimal("100.005"), Decimal("0")),
+            (self.capital.code, Decimal("0"), Decimal("100.005")),
+        ])
+
+        self.assertTrue(entry.is_balanced)
+        self.assertEqual(entry.total_debits, Decimal("100.01"))
+        self.assertEqual(entry.total_credits, Decimal("100.01"))
+        self.assertEqual(entry.lines.count(), 2)
+
+    def test_negative_automated_lines_are_rejected_before_any_write(self):
+        invalid_entries = [
+            [
+                (self.cash.code, Decimal("-100.00"), Decimal("0")),
+                (self.capital.code, Decimal("0"), Decimal("-100.00")),
+            ],
+            [
+                (self.cash.code, Decimal("100.00"), Decimal("-1.00")),
+                (self.capital.code, Decimal("0"), Decimal("101.00")),
+            ],
+        ]
+
+        for lines in invalid_entries:
+            with self.subTest(lines=lines):
+                with self.assertRaisesMessage(ValidationError, "cannot be negative"):
+                    create_entry(timezone.localdate(), "Invalid negative entry", lines)
+
+        self.assertEqual(JournalEntry.objects.count(), 0)
+        self.assertEqual(JournalLine.objects.count(), 0)
+
+    def test_zero_both_sides_and_nonfinite_lines_are_rejected(self):
+        invalid_entries = [
+            (
+                [
+                    (self.cash.code, Decimal("0"), Decimal("0")),
+                    (self.capital.code, Decimal("0"), Decimal("0")),
+                ],
+                "exactly one side",
+            ),
+            (
+                [
+                    (self.cash.code, Decimal("100"), Decimal("100")),
+                    (self.capital.code, Decimal("100"), Decimal("100")),
+                ],
+                "exactly one side",
+            ),
+            (
+                [
+                    (self.cash.code, Decimal("NaN"), Decimal("0")),
+                    (self.capital.code, Decimal("0"), Decimal("1")),
+                ],
+                "finite monetary amount",
+            ),
+            (
+                [
+                    (self.cash.code, Decimal("0.004"), Decimal("0")),
+                    (self.capital.code, Decimal("0"), Decimal("0.004")),
+                ],
+                "rounds to zero",
+            ),
+        ]
+
+        for lines, message in invalid_entries:
+            with self.subTest(lines=lines):
+                with self.assertRaisesMessage(ValidationError, message):
+                    create_entry(timezone.localdate(), "Invalid line shape", lines)
+
+        self.assertEqual(JournalEntry.objects.count(), 0)
+
+    def test_unbalanced_group_unknown_and_too_short_entries_are_rejected(self):
+        group = Account.objects.filter(is_group=True).first()
+        invalid_entries = [
+            (
+                [
+                    (self.cash.code, Decimal("100"), Decimal("0")),
+                    (self.capital.code, Decimal("0"), Decimal("99")),
+                ],
+                "not balanced",
+            ),
+            (
+                [
+                    (group.code, Decimal("100"), Decimal("0")),
+                    (self.capital.code, Decimal("0"), Decimal("100")),
+                ],
+                "heading, not a postable account",
+            ),
+            (
+                [
+                    ("DOES-NOT-EXIST", Decimal("100"), Decimal("0")),
+                    (self.capital.code, Decimal("0"), Decimal("100")),
+                ],
+                "unknown account code",
+            ),
+            (
+                [(self.cash.code, Decimal("100"), Decimal("0"))],
+                "at least two posting lines",
+            ),
+        ]
+
+        for lines, message in invalid_entries:
+            with self.subTest(lines=lines):
+                with self.assertRaisesMessage(ValidationError, message):
+                    create_entry(timezone.localdate(), "Invalid automated entry", lines)
+
+        self.assertEqual(JournalEntry.objects.count(), 0)
+
+    def test_model_and_database_reject_invalid_individual_lines(self):
+        entry = JournalEntry.objects.create(description="Constraint test")
+
+        with self.assertRaises(ValidationError):
+            JournalLine.objects.create(
+                entry=entry,
+                account=self.cash,
+                debit=Decimal("-1.00"),
+                credit=Decimal("0.00"),
+            )
+
+        group = Account.objects.filter(is_group=True).first()
+        with self.assertRaisesMessage(ValidationError, "heading, not a postable account"):
+            JournalLine.objects.create(
+                entry=entry,
+                account=group,
+                debit=Decimal("1.00"),
+                credit=Decimal("0.00"),
+            )
+
+        invalid_lines = [
+            JournalLine(
+                entry=entry,
+                account=self.cash,
+                debit=Decimal("-1.00"),
+                credit=Decimal("0.00"),
+            ),
+            JournalLine(
+                entry=entry,
+                account=self.cash,
+                debit=Decimal("1.00"),
+                credit=Decimal("1.00"),
+            ),
+            JournalLine(
+                entry=entry,
+                account=self.cash,
+                debit=Decimal("0.00"),
+                credit=Decimal("0.00"),
+            ),
+        ]
+        for line in invalid_lines:
+            with self.subTest(debit=line.debit, credit=line.credit):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        JournalLine.objects.bulk_create([line])
+
+        self.assertFalse(entry.is_balanced)
+        self.assertEqual(entry.lines.count(), 0)
