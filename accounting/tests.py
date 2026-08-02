@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -44,6 +44,8 @@ class GoldMovementReportTests(TestCase):
         Purchase.objects.filter(pk=purchase.pk).update(
             created_at=self._at(2026, 7, 10, 9)
         )
+        purchase.refresh_from_db()
+        purchase.post_to_ledger()
 
         sale = Sale.objects.create()
         SaleLine.objects.create(
@@ -55,6 +57,8 @@ class GoldMovementReportTests(TestCase):
         Sale.objects.filter(pk=sale.pk).update(
             created_at=self._at(2026, 7, 10, 11)
         )
+        sale.refresh_from_db()
+        sale.post_to_ledger()
 
         response = self.client.get(reverse("accounting:gold_movement"), {
             "from": "2026-07-10",
@@ -93,6 +97,8 @@ class GoldMovementReportTests(TestCase):
         Purchase.objects.filter(pk=opening.pk).update(
             created_at=self._at(2026, 6, 30, 12)
         )
+        opening.refresh_from_db()
+        opening.post_to_ledger()
 
         purchase = Purchase.objects.create()
         PurchaseLine.objects.create(
@@ -106,6 +112,8 @@ class GoldMovementReportTests(TestCase):
         Purchase.objects.filter(pk=purchase.pk).update(
             created_at=self._at(2026, 7, 1, 9)
         )
+        purchase.refresh_from_db()
+        purchase.post_to_ledger()
 
         response = self.client.get(reverse("accounting:gold_movement"), {
             "from": "2026-07-01",
@@ -295,3 +303,112 @@ class AutomatedPostingControlTests(TestCase):
 
         self.assertFalse(entry.is_balanced)
         self.assertEqual(entry.lines.count(), 0)
+
+
+class ReportConsistencyTests(TestCase):
+    def setUp(self):
+        user = get_user_model().objects.create_user(
+            username="report-controller",
+            password="test-password",
+        )
+        user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="accounting",
+            codename="view_account",
+        ))
+        self.client.force_login(user)
+
+    def test_financial_reports_and_account_ledger_share_the_same_dates(self):
+        create_entry(date(2025, 12, 31), "Prior revenue", [
+            ("1011", Decimal("100.00"), Decimal("0.00")),
+            ("4011", Decimal("0.00"), Decimal("100.00")),
+        ])
+        create_entry(date(2026, 1, 15), "Current revenue", [
+            ("1011", Decimal("200.00"), Decimal("0.00")),
+            ("4011", Decimal("0.00"), Decimal("200.00")),
+        ])
+
+        period = {"from": "2026-01-01", "to": "2026-12-31"}
+        income = self.client.get(reverse("accounting:income_statement"), period)
+        trial = self.client.get(reverse("accounting:trial_balance"), {**period, "show": "all"})
+        ledger = self.client.get(reverse("accounting:account_detail", args=["4011"]), period)
+
+        self.assertEqual(income.context["revenue_total"], "200.00")
+        revenue_trial_row = next(
+            row for row in trial.context["rows"] if row["account"].code == "4011"
+        )
+        self.assertEqual(revenue_trial_row["period_credit"], "200.00")
+        self.assertEqual(revenue_trial_row["closing_credit"], "300.00")
+        self.assertEqual(ledger.context["opening_balance"], "100.00")
+        self.assertEqual(ledger.context["period_credit"], "200.00")
+        self.assertEqual(ledger.context["account_balance"], "300.00")
+
+        prior_balance_sheet = self.client.get(
+            reverse("accounting:balance_sheet"),
+            {"to": "2025-12-31"},
+        )
+        current_balance_sheet = self.client.get(
+            reverse("accounting:balance_sheet"),
+            {"to": "2026-12-31"},
+        )
+        self.assertEqual(prior_balance_sheet.context["asset_total"], "100.00")
+        self.assertEqual(prior_balance_sheet.context["total_liab_equity_profit"], "100.00")
+        self.assertTrue(prior_balance_sheet.context["is_balanced"])
+        self.assertEqual(current_balance_sheet.context["asset_total"], "300.00")
+        self.assertEqual(current_balance_sheet.context["total_liab_equity_profit"], "300.00")
+        self.assertTrue(current_balance_sheet.context["is_balanced"])
+
+    def test_operational_reports_exclude_unposted_activity_and_show_differences(self):
+        posted = Purchase.objects.create()
+        PurchaseLine.objects.create(
+            purchase=posted,
+            name="Posted 18K bracelets",
+            category="bracelet",
+            karat=18,
+            weight_grams=Decimal("2.000"),
+            unit_cost=Decimal("1000.00"),
+            quantity=2,
+        )
+        posted.post_to_ledger()
+
+        today = timezone.localdate().isoformat()
+        gold = self.client.get(reverse("accounting:gold_movement"), {
+            "from": today,
+            "to": today,
+        })
+        inventory = self.client.get(reverse("accounting:inventory_report"))
+        reports = self.client.get(reverse("accounting:reports"))
+
+        self.assertEqual(len(gold.context["rows"]), 1)
+        self.assertTrue(gold.context["is_reconciled"])
+        self.assertEqual(inventory.context["total_cost"], "2,000.00")
+        self.assertEqual(inventory.context["ledger_total"], "2,000.00")
+        self.assertTrue(inventory.context["is_reconciled"])
+        self.assertTrue(reports.context["reconciliation"]["is_reconciled"])
+
+        unposted = Purchase.objects.create()
+        PurchaseLine.objects.create(
+            purchase=unposted,
+            name="Unposted 21K ring",
+            category="ring",
+            karat=21,
+            weight_grams=Decimal("1.000"),
+            unit_cost=Decimal("500.00"),
+            quantity=1,
+        )
+
+        gold = self.client.get(reverse("accounting:gold_movement"), {
+            "from": today,
+            "to": today,
+        })
+        inventory = self.client.get(reverse("accounting:inventory_report"))
+        reports = self.client.get(reverse("accounting:reports"))
+
+        self.assertEqual(len(gold.context["rows"]), 1)
+        self.assertEqual(gold.context["unposted_purchases"], 1)
+        self.assertFalse(gold.context["is_reconciled"])
+        self.assertEqual(inventory.context["total_cost"], "2,500.00")
+        self.assertEqual(inventory.context["ledger_total"], "2,000.00")
+        self.assertEqual(inventory.context["difference"], "500.00")
+        self.assertFalse(inventory.context["is_reconciled"])
+        self.assertEqual(reports.context["reconciliation"]["unposted_total"], 1)
+        self.assertFalse(reports.context["reconciliation"]["is_reconciled"])

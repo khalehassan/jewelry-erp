@@ -14,6 +14,35 @@
 {% block content %}
 <h1>Reports</h1>
 
+<div class="card" style="margin-bottom:20px;">
+    <div class="head-row">
+        <div>
+            <h2 style="margin-bottom:2px;">Operational ↔ Ledger reconciliation</h2>
+            <div class="sub">As of {{ as_of }} · posted transactions only</div>
+        </div>
+        <div style="font-weight:800; color:{% if reconciliation.is_reconciled %}var(--good){% else %}#b13a32{% endif %};">
+            {% if reconciliation.is_reconciled %}Reconciled{% else %}Needs attention{% endif %}
+        </div>
+    </div>
+    <table class="list" style="margin-top:12px;">
+        <tr><td class="sub">Control</td><td class="sub num">Operational</td><td class="sub num">Ledger</td><td class="sub num">Difference</td></tr>
+        {% for check in reconciliation.checks %}
+        <tr>
+            <td>{{ check.label }}</td>
+            <td class="num">{{ check.operational }}</td>
+            <td class="num">{{ check.ledger }}</td>
+            <td class="num" style="color:{% if check.is_reconciled %}var(--good){% else %}#b13a32{% endif %};">{{ check.difference }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% if reconciliation.unposted_total %}
+    <p style="color:#b13a32; font-weight:700; margin-bottom:0;">
+        Unposted source records: {{ reconciliation.unposted.purchases }} purchase(s),
+        {{ reconciliation.unposted.sales }} sale(s), {{ reconciliation.unposted.payments }} payment(s).
+    </p>
+    {% endif %}
+</div>
+
 <a class="report-line" href="{% url 'accounting:gold_movement' %}">
     <div><div class="title">Gold Transaction Log</div><div class="desc">Every purchase and sale, with a running gold balance by karat</div></div>
     <span class="arrow">→</span>

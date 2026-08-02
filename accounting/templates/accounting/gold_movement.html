@@ -52,7 +52,7 @@
 <div class="head-row">
     <div>
         <h1 style="margin-bottom:2px;">Gold Transaction Log</h1>
-        <div class="sub">Every gold purchase and sale in time order, with the balance after each transaction.</div>
+        <div class="sub">Every posted gold purchase and sale in ledger-date order, with the balance after each transaction.</div>
     </div>
     <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" class="btn ghost" onclick="window.print()">Print</button>
@@ -72,6 +72,12 @@
     <button type="submit" class="btn">Apply</button>
 </form>
 
+{% if unposted_purchases or unposted_sales %}
+<div style="margin-top:20px; padding:12px 14px; border:1px solid #d88; border-radius:8px; color:#b13a32; font-weight:700;">
+    Excluded because they are not posted: {{ unposted_purchases }} purchase(s) and {{ unposted_sales }} sale(s).
+</div>
+{% endif %}
+
 <div class="balances">
     {% for summary in summaries %}
     <div class="card">
@@ -85,7 +91,7 @@
     <table class="ledger">
         <thead>
             <tr>
-                <th>Date &amp; time</th>
+                <th>Ledger date</th>
                 <th>Transaction</th>
                 <th>Reference</th>
                 <th class="num">Karat</th>
@@ -97,7 +103,7 @@
         <tbody>
         {% for row in rows %}
             <tr>
-                <td>{{ row.occurred_at|date:"d M Y, H:i" }}</td>
+                <td>{{ row.ledger_date|date:"d M Y" }}<div class="sub">Entered {{ row.occurred_at|date:"H:i" }}</div></td>
                 <td><span class="transaction {{ row.kind_class }}">{{ row.kind }}</span></td>
                 <td>
                     <div style="font-weight:700;">{{ row.reference }}</div>
@@ -120,7 +126,7 @@
     <div class="table-wrap">
         <table class="summary-table">
             <thead>
-                <tr><th>Karat</th><th>Opening</th><th>Received</th><th>Out</th><th>Closing</th></tr>
+                <tr><th>Karat</th><th>Opening</th><th>Received</th><th>Out</th><th>Closing</th>{% if show_physical_reconciliation %}<th>Physical now</th><th>Difference</th>{% endif %}</tr>
             </thead>
             <tbody>
             {% for summary in summaries %}
@@ -130,6 +136,10 @@
                     <td class="received">{{ summary.received }}</td>
                     <td class="out">{{ summary.out }}</td>
                     <td class="{{ summary.closing_class }}">{{ summary.closing }}</td>
+                    {% if show_physical_reconciliation %}
+                    <td>{{ summary.physical }}</td>
+                    <td class="{% if summary.is_reconciled %}positive{% else %}negative{% endif %}">{{ summary.difference }}</td>
+                    {% endif %}
                 </tr>
             {% endfor %}
             </tbody>
@@ -138,6 +148,7 @@
 </div>
 
 <p class="sub" style="margin-top:14px;">
-    The running balance is kept separately for 18K, 21K, and 24K gold. The opening column carries all earlier purchases, opening stock, and sales into the selected period.
+    The running balance uses posted transactions only and is kept separately for 18K, 21K, and 24K gold. The opening column carries all earlier posted purchases, opening stock, and sales into the selected period.
+    {% if show_physical_reconciliation %}{% if is_reconciled %}Current physical gold reconciles to this closing balance. ✅{% else %}Current physical gold differs from the posted movement; review unposted records or manual inventory changes.{% endif %}{% endif %}
 </p>
 {% endblock %}

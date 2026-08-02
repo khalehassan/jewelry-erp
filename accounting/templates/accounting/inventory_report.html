@@ -3,8 +3,24 @@
 
 {% block content %}
 <div class="head-row">
-    <div><h1 style="margin-bottom:2px;">Inventory Report</h1><div class="sub">{{ item_count }} piece(s) in stock</div></div>
+    <div><h1 style="margin-bottom:2px;">Inventory Report</h1><div class="sub">{{ item_count }} piece(s) across {{ sku_count }} stock record(s) · as of {{ as_of }}</div></div>
     <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <div style="font-weight:800; color:{% if is_reconciled %}var(--good){% else %}#b13a32{% endif %};">
+        {% if is_reconciled %}Physical inventory reconciles to the ledger{% else %}Physical inventory does not reconcile to the ledger{% endif %}
+    </div>
+    <table class="list" style="margin-top:10px;">
+        <tr><td class="sub">Karat</td><td class="sub num">Physical cost</td><td class="sub num">Ledger inventory</td><td class="sub num">Difference</td></tr>
+        {% for summary in summaries %}
+        <tr>
+            <td>{{ summary.karat }}K</td><td class="num">{{ summary.physical }}</td><td class="num">{{ summary.ledger }}</td>
+            <td class="num" style="color:{% if summary.is_reconciled %}var(--good){% else %}#b13a32{% endif %};">{{ summary.difference }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="font-weight:800;"><td>Total</td><td class="num">{{ total_cost }}</td><td class="num">{{ ledger_total }}</td><td class="num">{{ difference }}</td></tr>
+    </table>
 </div>
 
 <div class="card" style="margin-top:20px; overflow-x:auto;">

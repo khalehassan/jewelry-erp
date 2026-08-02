@@ -95,7 +95,7 @@
                     {% if row.account.is_group %}
                         <span class="twist" data-toggle="{{ row.account.code }}">▾</span>{{ row.account.code }} — {{ row.account.name }}
                     {% else %}
-                        <span class="twist"></span><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}">{{ row.account.code }} — {{ row.account.name }}</a>
+                        <span class="twist"></span><a class="drill" href="{% url 'accounting:account_detail' row.account.code %}?from={{ date_from }}&amp;to={{ date_to }}">{{ row.account.code }} — {{ row.account.name }}</a>
                     {% endif %}
                 </td>
                 <td class="{% if row.opening_debit == '0.00' %}zero{% endif %}">{{ row.opening_debit }}</td>

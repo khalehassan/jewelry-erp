@@ -12,9 +12,22 @@
 <div class="head-row">
     <div>
         <h1 style="margin-bottom:2px;">{{ account.code }} — {{ account.name }}</h1>
-        <div class="sub">{{ account.get_type_display }} account · Balance: {{ account_balance }} EGP</div>
+        <div class="sub">{{ account.get_type_display }} account · Closing balance through {{ date_to }}: {{ account_balance }} EGP</div>
     </div>
     <a class="btn ghost" href="{% url 'accounting:reports' %}">← Back to reports</a>
+</div>
+
+<form method="get" class="card" style="margin-top:20px; display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+    <div><label for="from" style="margin-top:0;">From</label><input type="date" id="from" name="from" value="{{ date_from }}"></div>
+    <div><label for="to" style="margin-top:0;">To</label><input type="date" id="to" name="to" value="{{ date_to }}"></div>
+    <button type="submit" class="btn">Apply</button>
+</form>
+
+<div class="card" style="margin-top:20px; display:flex; gap:26px; flex-wrap:wrap;">
+    <div><div class="sub">Opening balance</div><strong>{{ opening_balance }} EGP</strong></div>
+    <div><div class="sub">Period debits</div><strong>{{ period_debit }} EGP</strong></div>
+    <div><div class="sub">Period credits</div><strong>{{ period_credit }} EGP</strong></div>
+    <div><div class="sub">Closing balance</div><strong>{{ account_balance }} EGP</strong></div>
 </div>
 
 <div class="card" style="margin-top:20px;">

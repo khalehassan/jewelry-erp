@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Sum
 from django.shortcuts import render, get_object_or_404, redirect
@@ -8,8 +8,10 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from inventory.models import JewelryItem
-from purchases.models import PurchaseLine
-from sales.models import SaleLine
+from payments.models import Payment
+from purchases.models import Purchase, PurchaseLine
+from sales.models import Sale, SaleLine
+from . import mapping
 from .models import Account, JournalLine
 
 
@@ -33,16 +35,151 @@ def _weight(x):
     return f"{x:,.3f}"
 
 
-def _by_type(t):
-    """Detail accounts only — group headings would double-count their children."""
+def _round_money(value):
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _line_totals(date_from=None, date_to=None, account_ids=None):
+    lines = JournalLine.objects.all()
+    if date_from is not None:
+        lines = lines.filter(entry__date__gte=date_from)
+    if date_to is not None:
+        lines = lines.filter(entry__date__lte=date_to)
+    if account_ids is not None:
+        lines = lines.filter(account_id__in=account_ids)
+    return {
+        row["account_id"]: (
+            row["debit"] or Decimal("0.00"),
+            row["credit"] or Decimal("0.00"),
+        )
+        for row in lines.values("account_id").annotate(
+            debit=Sum("debit"),
+            credit=Sum("credit"),
+        )
+    }
+
+
+def _normal_balance(account, debit, credit):
+    if account.type in (Account.Type.ASSET, Account.Type.EXPENSE):
+        return debit - credit
+    return credit - debit
+
+
+def _account_balance(code, date_to=None):
+    account = Account.objects.get(code=code)
+    debit, credit = _line_totals(
+        date_to=date_to,
+        account_ids=[account.pk],
+    ).get(account.pk, (Decimal("0.00"), Decimal("0.00")))
+    return _normal_balance(account, debit, credit)
+
+
+def _by_type(account_type, date_from=None, date_to=None):
+    """Ledger balances for detail accounts in one explicit reporting period."""
+    accounts = list(Account.objects.filter(type=account_type, is_group=False))
+    totals = _line_totals(
+        date_from=date_from,
+        date_to=date_to,
+        account_ids=[account.pk for account in accounts],
+    )
     rows = []
     total = Decimal("0.00")
-    for acc in Account.objects.filter(type=t, is_group=False):
-        bal = acc.balance
-        if bal:
-            rows.append({"account": acc, "balance": _money(bal)})
-        total += bal
+    for account in accounts:
+        debit, credit = totals.get(account.pk, (Decimal("0.00"), Decimal("0.00")))
+        balance = _normal_balance(account, debit, credit)
+        if balance:
+            rows.append({"account": account, "balance": _money(balance)})
+        total += balance
     return rows, total
+
+
+def _operational_reconciliation(as_of):
+    zero = Decimal("0.00")
+    inventory_value = sum(
+        (
+            item.cost_price * item.quantity
+            for item in JewelryItem.objects.filter(quantity__gt=0)
+        ),
+        zero,
+    )
+    inventory_ledger = sum(
+        (_account_balance(mapping.gold_inventory(karat), as_of) for karat in (18, 21, 24)),
+        zero,
+    )
+
+    credit_sales = sum(
+        (
+            _round_money(sale.total)
+            for sale in Sale.objects.filter(
+                on_credit=True,
+                journal_entry__date__lte=as_of,
+            )
+        ),
+        zero,
+    )
+    customer_receipts = sum(
+        Payment.objects.filter(
+            kind=Payment.Kind.RECEIVE,
+            journal_entry__date__lte=as_of,
+        ).values_list("amount", flat=True),
+        zero,
+    )
+    receivable_operational = credit_sales - customer_receipts
+    receivable_ledger = _account_balance(mapping.RETAIL_RECEIVABLE, as_of)
+
+    credit_purchases = sum(
+        (
+            purchase.total
+            for purchase in Purchase.objects.filter(
+                on_credit=True,
+                journal_entry__date__lte=as_of,
+            )
+        ),
+        zero,
+    )
+    supplier_payments = sum(
+        Payment.objects.filter(
+            kind=Payment.Kind.PAY,
+            journal_entry__date__lte=as_of,
+        ).values_list("amount", flat=True),
+        zero,
+    )
+    payable_operational = credit_purchases - supplier_payments
+    payable_ledger = _account_balance(mapping.SUPPLIER_PAYABLE, as_of)
+
+    raw_checks = [
+        ("Inventory at cost", inventory_value, inventory_ledger),
+        ("Customer receivables", receivable_operational, receivable_ledger),
+        ("Supplier payables", payable_operational, payable_ledger),
+    ]
+    checks = []
+    for label, operational, ledger in raw_checks:
+        difference = operational - ledger
+        checks.append({
+            "label": label,
+            "operational": _money(operational),
+            "ledger": _money(ledger),
+            "difference": _money(difference),
+            "is_reconciled": difference == 0,
+        })
+
+    unposted = {
+        "purchases": Purchase.objects.filter(
+            journal_entry__isnull=True,
+            lines__isnull=False,
+        ).distinct().count(),
+        "sales": Sale.objects.filter(
+            journal_entry__isnull=True,
+            lines__isnull=False,
+        ).distinct().count(),
+        "payments": Payment.objects.filter(journal_entry__isnull=True).count(),
+    }
+    return {
+        "checks": checks,
+        "is_reconciled": all(check["is_reconciled"] for check in checks) and not any(unposted.values()),
+        "unposted": unposted,
+        "unposted_total": sum(unposted.values()),
+    }
 
 
 def _split(net):
@@ -56,7 +193,11 @@ def _split(net):
 
 @require_perm("accounting.view_account")
 def reports_index(request):
-    return render(request, "accounting/reports_index.html")
+    as_of = timezone.localdate()
+    return render(request, "accounting/reports_index.html", {
+        "as_of": as_of.isoformat(),
+        "reconciliation": _operational_reconciliation(as_of),
+    })
 
 
 @require_perm("accounting.view_account")
@@ -66,6 +207,10 @@ def trial_balance(request):
     date_to = parse_date(request.GET.get("to") or "") or today
     level = request.GET.get("level") or "all"        # all | detail | summary
     show = request.GET.get("show") or "nonzero"      # all | nonzero | movement
+
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+        messages.info(request, "The dates were reversed, so they have been put in chronological order.")
 
     accounts = list(Account.objects.select_related("parent").order_by("code"))
     by_id = {a.pk: a for a in accounts}
@@ -173,8 +318,23 @@ def trial_balance(request):
 
 @require_perm("accounting.view_account")
 def income_statement(request):
-    revenue_rows, revenue_total = _by_type(Account.Type.REVENUE)
-    expense_rows, expense_total = _by_type(Account.Type.EXPENSE)
+    today = timezone.localdate()
+    date_from = parse_date(request.GET.get("from") or "") or today.replace(month=1, day=1)
+    date_to = parse_date(request.GET.get("to") or "") or today
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+        messages.info(request, "The dates were reversed, so they have been put in chronological order.")
+
+    revenue_rows, revenue_total = _by_type(
+        Account.Type.REVENUE,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    expense_rows, expense_total = _by_type(
+        Account.Type.EXPENSE,
+        date_from=date_from,
+        date_to=date_to,
+    )
     net_profit = revenue_total - expense_total
     return render(request, "accounting/income_statement.html", {
         "revenue_rows": revenue_rows,
@@ -182,40 +342,76 @@ def income_statement(request):
         "expense_rows": expense_rows,
         "expense_total": _money(expense_total),
         "net_profit": _money(net_profit),
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
     })
 
 
 @require_perm("accounting.view_account")
 def balance_sheet(request):
-    asset_rows, asset_total = _by_type(Account.Type.ASSET)
-    liability_rows, liability_total = _by_type(Account.Type.LIABILITY)
-    equity_rows, equity_total = _by_type(Account.Type.EQUITY)
-    _, revenue_total = _by_type(Account.Type.REVENUE)
-    _, expense_total = _by_type(Account.Type.EXPENSE)
+    as_of = parse_date(request.GET.get("to") or "") or timezone.localdate()
+    asset_rows, asset_total = _by_type(Account.Type.ASSET, date_to=as_of)
+    liability_rows, liability_total = _by_type(Account.Type.LIABILITY, date_to=as_of)
+    equity_rows, equity_total = _by_type(Account.Type.EQUITY, date_to=as_of)
+    _, revenue_total = _by_type(Account.Type.REVENUE, date_to=as_of)
+    _, expense_total = _by_type(Account.Type.EXPENSE, date_to=as_of)
     net_profit = revenue_total - expense_total
+    total_liabilities_equity = liability_total + equity_total + net_profit
+    difference = asset_total - total_liabilities_equity
     return render(request, "accounting/balance_sheet.html", {
         "asset_rows": asset_rows,
         "asset_total": _money(asset_total),
         "liability_rows": liability_rows,
         "equity_rows": equity_rows,
         "net_profit": _money(net_profit),
-        "total_liab_equity_profit": _money(liability_total + equity_total + net_profit),
+        "total_liab_equity_profit": _money(total_liabilities_equity),
+        "difference": _money(abs(difference)),
+        "is_balanced": difference == 0,
+        "as_of": as_of.isoformat(),
     })
 
 
 @require_perm("accounting.view_account")
 def inventory_report(request):
-    items = JewelryItem.objects.all().order_by("location", "name")
+    as_of = timezone.localdate()
+    items = JewelryItem.objects.filter(quantity__gt=0).order_by("location", "name")
     total_cost = Decimal("0.00")
+    physical_by_karat = {karat: Decimal("0.00") for karat in (18, 21, 24)}
+    piece_count = 0
     rows = []
     for item in items:
         line_cost = item.cost_price * item.quantity
         total_cost += line_cost
+        if item.karat in physical_by_karat:
+            physical_by_karat[item.karat] += line_cost
+        piece_count += item.quantity
         rows.append({"item": item, "line_cost": _money(line_cost)})
+
+    summaries = []
+    total_ledger = Decimal("0.00")
+    for karat in (18, 21, 24):
+        ledger = _account_balance(mapping.gold_inventory(karat), as_of)
+        physical = physical_by_karat[karat]
+        difference = physical - ledger
+        total_ledger += ledger
+        summaries.append({
+            "karat": karat,
+            "physical": _money(physical),
+            "ledger": _money(ledger),
+            "difference": _money(difference),
+            "is_reconciled": difference == 0,
+        })
+    total_difference = total_cost - total_ledger
     return render(request, "accounting/inventory_report.html", {
         "rows": rows,
         "total_cost": _money(total_cost),
-        "item_count": items.count(),
+        "ledger_total": _money(total_ledger),
+        "difference": _money(total_difference),
+        "is_reconciled": total_difference == 0,
+        "summaries": summaries,
+        "item_count": piece_count,
+        "sku_count": len(rows),
+        "as_of": as_of.isoformat(),
     })
 
 
@@ -243,7 +439,7 @@ def gold_movement(request):
     opening_balances = {karat: zero for karat in karats}
     opening_purchase_rows = (
         PurchaseLine.objects
-        .filter(purchase__created_at__date__lt=date_from)
+        .filter(purchase__journal_entry__date__lt=date_from)
         .values("karat")
         .annotate(weight=Sum(purchase_weight))
         .order_by()
@@ -258,7 +454,7 @@ def gold_movement(request):
     )
     opening_sale_rows = (
         SaleLine.objects
-        .filter(sale__created_at__date__lt=date_from)
+        .filter(sale__journal_entry__date__lt=date_from)
         .values("item__karat")
         .annotate(weight=Sum(sale_weight))
         .order_by()
@@ -273,10 +469,11 @@ def gold_movement(request):
     events = []
     period_purchase_rows = (
         PurchaseLine.objects
-        .filter(purchase__created_at__date__range=(date_from, date_to))
+        .filter(purchase__journal_entry__date__range=(date_from, date_to))
         .values(
             "purchase_id",
             "purchase__created_at",
+            "purchase__journal_entry__date",
             "purchase__is_opening",
             "purchase__supplier__name",
             "karat",
@@ -288,6 +485,7 @@ def gold_movement(request):
         is_opening = result["purchase__is_opening"]
         events.append({
             "occurred_at": result["purchase__created_at"],
+            "ledger_date": result["purchase__journal_entry__date"],
             "sort_order": 0,
             "source_id": result["purchase_id"],
             "kind": "Opening stock" if is_opening else "Purchase",
@@ -304,10 +502,11 @@ def gold_movement(request):
 
     period_sale_rows = (
         SaleLine.objects
-        .filter(sale__created_at__date__range=(date_from, date_to))
+        .filter(sale__journal_entry__date__range=(date_from, date_to))
         .values(
             "sale_id",
             "sale__created_at",
+            "sale__journal_entry__date",
             "sale__customer__name",
             "item__karat",
         )
@@ -317,6 +516,7 @@ def gold_movement(request):
     for result in period_sale_rows:
         events.append({
             "occurred_at": result["sale__created_at"],
+            "ledger_date": result["sale__journal_entry__date"],
             "sort_order": 1,
             "source_id": result["sale_id"],
             "kind": "Sale",
@@ -329,6 +529,7 @@ def gold_movement(request):
         })
 
     events.sort(key=lambda event: (
+        event["ledger_date"],
         event["occurred_at"],
         event["sort_order"],
         event["source_id"],
@@ -357,9 +558,18 @@ def gold_movement(request):
             "balance_class": "negative" if running_balances[karat] < 0 else "positive",
         })
 
+    show_physical_reconciliation = date_to == timezone.localdate()
+    physical_weights = {karat: zero for karat in karats}
+    if show_physical_reconciliation:
+        for item in JewelryItem.objects.filter(quantity__gt=0):
+            if item.karat in physical_weights:
+                physical_weights[item.karat] += item.weight_grams * item.quantity
+
     summaries = []
     for karat in karats:
         closing = running_balances[karat]
+        physical = physical_weights[karat]
+        difference = physical - closing
         summaries.append({
             "karat": karat,
             "opening": _weight(opening_balances[karat]),
@@ -367,24 +577,65 @@ def gold_movement(request):
             "out": _weight(period_totals[karat]["out"]),
             "closing": _weight(closing),
             "closing_class": "negative" if closing < 0 else "positive",
+            "physical": _weight(physical),
+            "difference": _weight(difference),
+            "is_reconciled": difference == 0,
         })
+
+    unposted_purchases = Purchase.objects.filter(
+        journal_entry__isnull=True,
+        lines__isnull=False,
+    ).distinct().count()
+    unposted_sales = Sale.objects.filter(
+        journal_entry__isnull=True,
+        lines__isnull=False,
+    ).distinct().count()
 
     return render(request, "accounting/gold_movement.html", {
         "rows": rows,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
         "summaries": summaries,
+        "show_physical_reconciliation": show_physical_reconciliation,
+        "is_reconciled": (
+            show_physical_reconciliation
+            and all(summary["is_reconciled"] for summary in summaries)
+            and not unposted_purchases
+            and not unposted_sales
+        ),
+        "unposted_purchases": unposted_purchases,
+        "unposted_sales": unposted_sales,
     })
 
 
 @require_perm("accounting.view_account")
 def account_detail(request, code):
     account = get_object_or_404(Account, code=code)
-    lines = account.lines.select_related("entry").order_by("entry__date", "entry__id", "id")
+    today = timezone.localdate()
+    date_from = parse_date(request.GET.get("from") or "") or today.replace(month=1, day=1)
+    date_to = parse_date(request.GET.get("to") or "") or today
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+        messages.info(request, "The dates were reversed, so they have been put in chronological order.")
+
+    opening_totals = account.lines.filter(entry__date__lt=date_from).aggregate(
+        debit=Sum("debit"),
+        credit=Sum("credit"),
+    )
+    opening_debit = opening_totals["debit"] or Decimal("0.00")
+    opening_credit = opening_totals["credit"] or Decimal("0.00")
+    lines = account.lines.filter(
+        entry__date__range=(date_from, date_to),
+    ).select_related("entry").order_by("entry__date", "entry__id", "id")
     is_debit_normal = account.type in (Account.Type.ASSET, Account.Type.EXPENSE)
-    running = Decimal("0.00")
+    running = _normal_balance(account, opening_debit, opening_credit)
+    opening_balance = running
+    period_debit = Decimal("0.00")
+    period_credit = Decimal("0.00")
     rows = []
     for line in lines:
+        period_debit += line.debit
+        period_credit += line.credit
         if is_debit_normal:
             running += line.debit - line.credit
         else:
@@ -397,6 +648,11 @@ def account_detail(request, code):
         })
     return render(request, "accounting/account_detail.html", {
         "account": account,
-        "account_balance": _money(account.balance),
+        "account_balance": _money(running),
+        "opening_balance": _money(opening_balance),
+        "period_debit": _money(period_debit),
+        "period_credit": _money(period_credit),
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
         "rows": rows,
     })
