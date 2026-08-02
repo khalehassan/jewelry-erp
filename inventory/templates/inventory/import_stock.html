@@ -11,13 +11,15 @@
     </p>
     <ul class="sub" style="line-height:1.9;">
         <li><b>barcode</b> — the code on the tag (leave blank to auto-generate a JW code)</li>
+        <li><b>name</b> — required for every row</li>
         <li><b>category</b> — ring / necklace / bracelet / earring / chain / pendant / other</li>
         <li><b>karat</b> — 18, 21, or 24</li>
-        <li><b>weight_grams</b> — e.g. 5.50</li>
-        <li><b>cost_price</b> — what the piece cost you (EGP)</li>
+        <li><b>weight_grams</b> — must be greater than zero, e.g. 5.50</li>
+        <li><b>cost_price</b> — must be greater than zero (EGP)</li>
         <li><b>location</b> — safe or showcase</li>
-        <li><b>quantity</b> — usually 1</li>
+        <li><b>quantity</b> — a whole number of at least 1</li>
     </ul>
+    <p class="sub"><b>The complete file is validated first.</b> If any row is invalid, nothing is imported and the row errors are shown.</p>
 
     <form method="post" enctype="multipart/form-data" style="margin-top:16px;">
         {% csrf_token %}
