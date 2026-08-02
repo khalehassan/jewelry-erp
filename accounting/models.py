@@ -1,9 +1,6 @@
 from decimal import Decimal
 
 from django.db import models
-from django.db.models import ProtectedError
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 from django.utils import timezone
 
 
@@ -93,33 +90,3 @@ class JournalLine(models.Model):
 
     def __str__(self):
         return f"{self.account.code}: D{self.debit} C{self.credit}"
-
-
-@receiver(pre_delete, sender=JournalEntry)
-def delete_sources_on_journal_delete(sender, instance, **kwargs):
-    from sales.models import Sale
-    from purchases.models import Purchase, PurchaseLine
-    from inventory.models import JewelryItem
-    from payments.models import Payment
-
-    purchase_ids = list(Purchase.objects.filter(journal_entry=instance).values_list("pk", flat=True))
-    sale_ids = list(Sale.objects.filter(journal_entry=instance).values_list("pk", flat=True))
-    payment_ids = list(Payment.objects.filter(journal_entry=instance).values_list("pk", flat=True))
-    item_ids = list(
-        PurchaseLine.objects
-        .filter(purchase_id__in=purchase_ids, created_item__isnull=False)
-        .values_list("created_item_id", flat=True)
-    )
-
-    if item_ids:
-        try:
-            JewelryItem.objects.filter(pk__in=item_ids).delete()
-        except ProtectedError:
-            pass
-
-    Purchase.objects.filter(pk__in=purchase_ids).update(journal_entry=None)
-    Sale.objects.filter(pk__in=sale_ids).update(journal_entry=None)
-    Payment.objects.filter(pk__in=payment_ids).update(journal_entry=None)
-    Purchase.objects.filter(pk__in=purchase_ids).delete()
-    Sale.objects.filter(pk__in=sale_ids).delete()
-    Payment.objects.filter(pk__in=payment_ids).delete()

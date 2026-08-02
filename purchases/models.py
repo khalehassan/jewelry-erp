@@ -2,11 +2,10 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import ProtectedError
-from django.db.models.signals import post_save, post_delete, pre_delete
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 
-from accounting.services import POSTED_LOCK_MESSAGE
+from accounting.services import POSTED_LOCK_MESSAGE, deletion_origin_includes
 from inventory.models import JewelryItem
 
 
@@ -25,7 +24,7 @@ class Purchase(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="purchases")
     on_credit = models.BooleanField(default=False, help_text="Bought on credit (you owe the supplier)")
     is_opening = models.BooleanField(default=False, help_text="Stock you already owned, brought onto the books (e.g. a CSV import)")
-    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -85,7 +84,7 @@ class PurchaseLine(models.Model):
     location = models.CharField(max_length=20, choices=JewelryItem.Location.choices, default=JewelryItem.Location.SAFE)
     unit_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=1)
-    created_item = models.ForeignKey(JewelryItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="purchase_lines")
+    created_item = models.ForeignKey(JewelryItem, null=True, blank=True, on_delete=models.RESTRICT, related_name="purchase_lines")
 
     def __str__(self):
         return f"{self.quantity} × {self.name}"
@@ -128,32 +127,21 @@ def create_stock_item(sender, instance, created, **kwargs):
             location=instance.location,
             cost_price=instance.unit_cost,
             quantity=instance.quantity,
+            source_purchase_line=instance,
         )
         instance.created_item = item
         instance.save(update_fields=["created_item"])
 
 
-@receiver(post_delete, sender=PurchaseLine)
-def remove_item_on_line_delete(sender, instance, **kwargs):
-    if instance.created_item_id:
-        try:
-            JewelryItem.objects.filter(pk=instance.created_item_id).delete()
-        except ProtectedError:
-            pass  # already sold — keep it
-
-
 @receiver(pre_delete, sender=Purchase)
-def cleanup_on_purchase_delete(sender, instance, **kwargs):
-    # 1) delete the inventory pieces this purchase created
-    item_ids = list(instance.lines.filter(created_item__isnull=False).values_list("created_item_id", flat=True))
-    if item_ids:
-        try:
-            JewelryItem.objects.filter(pk__in=item_ids).delete()
-        except ProtectedError:
-            pass
-    # 2) delete its journal entry (unlink first so it can't loop back)
+def cleanup_on_purchase_delete(sender, instance, origin=None, **kwargs):
+    # The PurchaseLine -> JewelryItem ownership link handles stock deletion.
+    # If a sale still references an item, Django blocks the entire purchase
+    # deletion before anything is removed, preserving every connection.
     je_id = instance.journal_entry_id
     if je_id:
-        Purchase.objects.filter(pk=instance.pk).update(journal_entry=None)
         from accounting.models import JournalEntry
+        if deletion_origin_includes(origin, JournalEntry, je_id):
+            return
+        Purchase.objects.filter(pk=instance.pk).update(journal_entry=None)
         JournalEntry.objects.filter(pk=je_id).delete()

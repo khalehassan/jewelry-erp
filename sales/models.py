@@ -5,7 +5,7 @@ from django.db import models
 from django.db.models.signals import post_save, post_delete, pre_delete
 from django.dispatch import receiver
 
-from accounting.services import POSTED_LOCK_MESSAGE
+from accounting.services import POSTED_LOCK_MESSAGE, deletion_origin_includes
 from inventory.models import JewelryItem
 
 
@@ -13,7 +13,7 @@ class Sale(models.Model):
     customer = models.ForeignKey("customers.Customer", on_delete=models.PROTECT, null=True, blank=True, related_name="sales")
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     on_credit = models.BooleanField(default=False, help_text="Sold on credit (customer owes you)")
-    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -70,7 +70,7 @@ class Sale(models.Model):
 
 class SaleLine(models.Model):
     sale = models.ForeignKey(Sale, related_name="lines", on_delete=models.CASCADE)
-    item = models.ForeignKey(JewelryItem, on_delete=models.PROTECT)
+    item = models.ForeignKey(JewelryItem, on_delete=models.RESTRICT)
     gold_price_per_gram = models.DecimalField(max_digits=10, decimal_places=2)
     making_charge_per_gram = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=1)
@@ -113,9 +113,11 @@ def restore_stock_on_delete(sender, instance, **kwargs):
 
 
 @receiver(pre_delete, sender=Sale)
-def cleanup_on_sale_delete(sender, instance, **kwargs):
+def cleanup_on_sale_delete(sender, instance, origin=None, **kwargs):
     je_id = instance.journal_entry_id
     if je_id:
-        Sale.objects.filter(pk=instance.pk).update(journal_entry=None)
         from accounting.models import JournalEntry
+        if deletion_origin_includes(origin, JournalEntry, je_id):
+            return
+        Sale.objects.filter(pk=instance.pk).update(journal_entry=None)
         JournalEntry.objects.filter(pk=je_id).delete()

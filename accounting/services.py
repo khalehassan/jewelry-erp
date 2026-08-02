@@ -10,6 +10,15 @@ POSTED_LOCK_MESSAGE = (
 )
 
 
+def deletion_origin_includes(origin, model, pk):
+    """True when ``model(pk)`` is the root of the current delete operation."""
+    if isinstance(origin, model):
+        return origin.pk == pk
+    if getattr(origin, "model", None) is model:
+        return origin.filter(pk=pk).exists()
+    return False
+
+
 def create_entry(date, description, lines):
     """lines: a list of (account_code, debit, credit) tuples."""
     # Resolve and check every account BEFORE creating anything, so a bad line

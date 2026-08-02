@@ -30,6 +30,14 @@ class JewelryItem(models.Model):
     location = models.CharField(max_length=20, choices=Location.choices, default=Location.SAFE)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
+    source_purchase_line = models.OneToOneField(
+        "purchases.PurchaseLine",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="created_stock_item",
+        editable=False,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

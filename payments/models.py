@@ -5,7 +5,7 @@ from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from accounting.services import POSTED_LOCK_MESSAGE
+from accounting.services import POSTED_LOCK_MESSAGE, deletion_origin_includes
 
 
 class Payment(models.Model):
@@ -18,7 +18,7 @@ class Payment(models.Model):
     supplier = models.ForeignKey("purchases.Supplier", on_delete=models.PROTECT, null=True, blank=True, related_name="payments")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     note = models.CharField(max_length=200, blank=True)
-    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -65,9 +65,11 @@ class Payment(models.Model):
 
 
 @receiver(pre_delete, sender=Payment)
-def cleanup_on_payment_delete(sender, instance, **kwargs):
+def cleanup_on_payment_delete(sender, instance, origin=None, **kwargs):
     je_id = instance.journal_entry_id
     if je_id:
-        Payment.objects.filter(pk=instance.pk).update(journal_entry=None)
         from accounting.models import JournalEntry
+        if deletion_origin_includes(origin, JournalEntry, je_id):
+            return
+        Payment.objects.filter(pk=instance.pk).update(journal_entry=None)
         JournalEntry.objects.filter(pk=je_id).delete()
