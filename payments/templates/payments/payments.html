@@ -24,11 +24,16 @@
         <label for="r-customer">Customer</label>
         <select id="r-customer" name="customer" required>
             <option value="">— choose —</option>
-            {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+            {% for row in customers %}
+            <option value="{{ row.party.pk }}" data-outstanding="{{ row.outstanding_amount }}">
+                {{ row.name }} — {{ row.outstanding }} EGP outstanding
+            </option>
+            {% endfor %}
         </select>
 
         <label for="r-amount">Amount (EGP)</label>
         <input type="number" id="r-amount" name="amount" step="0.01" min="0.01" required>
+        <div class="sub" id="r-limit" style="margin-top:5px;"></div>
 
         <label for="r-note">Note</label>
         <input type="text" id="r-note" name="note" placeholder="e.g. cash, instalment 2">
@@ -44,7 +49,11 @@
         <label for="p-supplier">Supplier</label>
         <select id="p-supplier" name="supplier" required>
             <option value="">— choose —</option>
-            {% for s in suppliers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
+            {% for row in suppliers %}
+            <option value="{{ row.party.pk }}" data-outstanding="{{ row.outstanding_amount }}">
+                {{ row.name }} — {{ row.outstanding }} EGP outstanding
+            </option>
+            {% endfor %}
         </select>
         {% if perms.purchases.add_supplier %}
         <p class="sub" style="margin:6px 0 0;"><a href="{% url 'purchases:new_supplier' %}">+ Add a new supplier</a></p>
@@ -52,6 +61,7 @@
 
         <label for="p-amount">Amount (EGP)</label>
         <input type="number" id="p-amount" name="amount" step="0.01" min="0.01" required>
+        <div class="sub" id="p-limit" style="margin-top:5px;"></div>
 
         <label for="p-note">Note</label>
         <input type="text" id="p-note" name="note" placeholder="e.g. bank transfer">
@@ -110,4 +120,37 @@
         {% endfor %}
     </table>
 </div>
+
+<script>
+    function bindOutstandingLimit(selectId, amountId, limitId) {
+        const select = document.getElementById(selectId);
+        const amount = document.getElementById(amountId);
+        const limit = document.getElementById(limitId);
+
+        function updateLimit() {
+            const option = select.options[select.selectedIndex];
+            const outstanding = option ? option.dataset.outstanding : "";
+            amount.setCustomValidity("");
+            if (outstanding) {
+                amount.max = outstanding;
+                limit.textContent = "Maximum allowed: " + Number(outstanding).toLocaleString(
+                    "en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2}
+                ) + " EGP";
+                if (Number(amount.value) > Number(outstanding)) {
+                    amount.setCustomValidity("Amount exceeds the outstanding balance.");
+                }
+            } else {
+                amount.removeAttribute("max");
+                limit.textContent = "";
+            }
+        }
+
+        select.addEventListener("change", updateLimit);
+        amount.addEventListener("input", updateLimit);
+        updateLimit();
+    }
+
+    bindOutstandingLimit("r-customer", "r-amount", "r-limit");
+    bindOutstandingLimit("p-supplier", "p-amount", "p-limit");
+</script>
 {% endblock %}
