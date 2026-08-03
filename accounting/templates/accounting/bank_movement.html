@@ -43,6 +43,7 @@
     </div>
     <div class="actions">
         <button class="btn ghost" type="button" onclick="window.print()">Print</button>
+        {% include "accounting/_export_buttons.html" %}
         <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
     </div>
 </div>

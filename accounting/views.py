@@ -3,6 +3,7 @@ from itertools import zip_longest
 
 from django.core.exceptions import ValidationError
 from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
+from django.http import Http404
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -15,6 +16,7 @@ from purchases.models import Purchase, PurchaseLine
 from sales.models import Sale, SaleLine
 from . import mapping
 from .models import Account, JournalEntry, JournalLine
+from .report_exports import build_report_document, export_documents_response
 from .services import create_entry
 
 
@@ -379,17 +381,50 @@ def _split(net):
     return Decimal("0.00"), Decimal("0.00")
 
 
+def _export_user(request):
+    return request.user.get_full_name().strip() or request.user.get_username()
+
+
+def _render_report(request, report_key, template_name, context):
+    file_format = (request.GET.get("export") or "").lower()
+    if file_format:
+        if file_format not in ("xlsx", "pdf"):
+            raise Http404("Unsupported report export format.")
+        document = build_report_document(report_key, context)
+        return export_documents_response(
+            [document],
+            file_format,
+            _export_user(request),
+        )
+
+    query = request.GET.copy()
+    query["export"] = "xlsx"
+    context["excel_export_url"] = f"{request.path}?{query.urlencode()}"
+    query["export"] = "pdf"
+    context["pdf_export_url"] = f"{request.path}?{query.urlencode()}"
+    return render(request, template_name, context)
+
+
+def _reports_index_context(request):
+    as_of = timezone.localdate()
+    return {
+        "as_of": as_of.isoformat(),
+        "pack_date_from": as_of.replace(month=1, day=1).isoformat(),
+        "reconciliation": _operational_reconciliation(as_of),
+    }
+
+
 @require_perm("accounting.view_account")
 def reports_index(request):
-    as_of = timezone.localdate()
-    return render(request, "accounting/reports_index.html", {
-        "as_of": as_of.isoformat(),
-        "reconciliation": _operational_reconciliation(as_of),
-    })
+    return _render_report(
+        request,
+        "reports_overview",
+        "accounting/reports_index.html",
+        _reports_index_context(request),
+    )
 
 
-@require_perm("accounting.view_account")
-def trial_balance(request):
+def _trial_balance_context(request):
     today = timezone.localdate()
     date_from = parse_date(request.GET.get("from") or "") or today.replace(month=1, day=1)
     date_to = parse_date(request.GET.get("to") or "") or today
@@ -490,7 +525,7 @@ def trial_balance(request):
             "closing_credit": _money(close_c),
         })
 
-    return render(request, "accounting/trial_balance.html", {
+    return {
         "rows": rows,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
@@ -501,11 +536,20 @@ def trial_balance(request):
         "difference": _money(abs(total_debit - total_credit)),
         "is_balanced": total_debit == total_credit,
         "row_count": len(rows),
-    })
+    }
 
 
 @require_perm("accounting.view_account")
-def income_statement(request):
+def trial_balance(request):
+    return _render_report(
+        request,
+        "trial_balance",
+        "accounting/trial_balance.html",
+        _trial_balance_context(request),
+    )
+
+
+def _income_statement_context(request):
     today = timezone.localdate()
     date_from = parse_date(request.GET.get("from") or "") or today.replace(month=1, day=1)
     date_to = parse_date(request.GET.get("to") or "") or today
@@ -529,7 +573,7 @@ def income_statement(request):
         show=show,
     )
     net_profit = revenue["total"] - expenses["total"]
-    return render(request, "accounting/income_statement.html", {
+    return {
         "revenue_sections": revenue["sections"],
         "revenue_total": _money(revenue["total"]),
         "expense_sections": expenses["sections"],
@@ -541,11 +585,20 @@ def income_statement(request):
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
         "show": show,
-    })
+    }
 
 
 @require_perm("accounting.view_account")
-def balance_sheet(request):
+def income_statement(request):
+    return _render_report(
+        request,
+        "income_statement",
+        "accounting/income_statement.html",
+        _income_statement_context(request),
+    )
+
+
+def _balance_sheet_context(request):
     as_of = parse_date(request.GET.get("to") or "") or timezone.localdate()
     show = request.GET.get("show") or "nonzero"
     if show not in ("nonzero", "all"):
@@ -560,7 +613,7 @@ def balance_sheet(request):
     difference = assets["total"] - total_liabilities_equity
     trial_debit, trial_credit = _trial_balance_closing_control(as_of)
     trial_difference = trial_debit - trial_credit
-    return render(request, "accounting/balance_sheet.html", {
+    return {
         "asset_sections": assets["sections"],
         "asset_total": _money(assets["total"]),
         "liability_sections": liabilities["sections"],
@@ -588,11 +641,20 @@ def balance_sheet(request):
         ),
         "as_of": as_of.isoformat(),
         "show": show,
-    })
+    }
 
 
 @require_perm("accounting.view_account")
-def inventory_report(request):
+def balance_sheet(request):
+    return _render_report(
+        request,
+        "balance_sheet",
+        "accounting/balance_sheet.html",
+        _balance_sheet_context(request),
+    )
+
+
+def _inventory_report_context(request):
     as_of = timezone.localdate()
     items = JewelryItem.objects.filter(
         is_archived=False,
@@ -625,7 +687,7 @@ def inventory_report(request):
             "is_reconciled": difference == 0,
         })
     total_difference = total_cost - total_ledger
-    return render(request, "accounting/inventory_report.html", {
+    return {
         "rows": rows,
         "total_cost": _money(total_cost),
         "ledger_total": _money(total_ledger),
@@ -635,11 +697,20 @@ def inventory_report(request):
         "item_count": piece_count,
         "sku_count": len(rows),
         "as_of": as_of.isoformat(),
-    })
+    }
 
 
 @require_perm("accounting.view_account")
-def bank_movement(request):
+def inventory_report(request):
+    return _render_report(
+        request,
+        "inventory_report",
+        "accounting/inventory_report.html",
+        _inventory_report_context(request),
+    )
+
+
+def _bank_movement_context(request):
     """Movement and statement reconciliation for one bank/detail payment account."""
     today = timezone.localdate()
     date_from = parse_date(request.GET.get("from") or "") or today.replace(day=1)
@@ -719,7 +790,7 @@ def bank_movement(request):
         difference = actual_balance - running_balance
         is_matched = difference == 0
 
-    return render(request, "accounting/bank_movement.html", {
+    return {
         "account": account,
         "bank_accounts": bank_accounts,
         "date_from": date_from.isoformat(),
@@ -736,11 +807,20 @@ def bank_movement(request):
         "ending_balance": _money(running_balance),
         "ending_class": "negative" if running_balance < 0 else "positive",
         "rows": rows,
-    })
+    }
 
 
 @require_perm("accounting.view_account")
-def gold_movement(request):
+def bank_movement(request):
+    return _render_report(
+        request,
+        "bank_movement",
+        "accounting/bank_movement.html",
+        _bank_movement_context(request),
+    )
+
+
+def _gold_movement_context(request):
     """Chronological gold ledger with a running physical-weight balance."""
     today = timezone.localdate()
     date_from = parse_date(request.GET.get("from") or "") or today.replace(day=1)
@@ -1025,7 +1105,7 @@ def gold_movement(request):
         lines__isnull=False,
     ).distinct().count()
 
-    return render(request, "accounting/gold_movement.html", {
+    return {
         "rows": rows,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
@@ -1039,11 +1119,46 @@ def gold_movement(request):
         ),
         "unposted_purchases": unposted_purchases,
         "unposted_sales": unposted_sales,
-    })
+    }
 
 
 @require_perm("accounting.view_account")
-def account_detail(request, code):
+def gold_movement(request):
+    return _render_report(
+        request,
+        "gold_movement",
+        "accounting/gold_movement.html",
+        _gold_movement_context(request),
+    )
+
+
+@require_perm("accounting.view_account")
+def export_all_reports(request, file_format):
+    file_format = file_format.lower()
+    if file_format not in ("xlsx", "pdf"):
+        raise Http404("Unsupported report export format.")
+    report_contexts = (
+        ("reports_overview", _reports_index_context(request)),
+        ("trial_balance", _trial_balance_context(request)),
+        ("income_statement", _income_statement_context(request)),
+        ("balance_sheet", _balance_sheet_context(request)),
+        ("inventory_report", _inventory_report_context(request)),
+        ("bank_movement", _bank_movement_context(request)),
+        ("gold_movement", _gold_movement_context(request)),
+    )
+    documents = [
+        build_report_document(report_key, context)
+        for report_key, context in report_contexts
+    ]
+    return export_documents_response(
+        documents,
+        file_format,
+        _export_user(request),
+        filename=f"all-accounting-reports-{timezone.localdate().isoformat()}",
+    )
+
+
+def _account_detail_context(request, code):
     account = get_object_or_404(Account, code=code)
     today = timezone.localdate()
     date_from = parse_date(request.GET.get("from") or "") or today.replace(month=1, day=1)
@@ -1080,7 +1195,7 @@ def account_detail(request, code):
             "credit": _money(line.credit),
             "running": _money(running),
         })
-    return render(request, "accounting/account_detail.html", {
+    return {
         "account": account,
         "account_balance": _money(running),
         "opening_balance": _money(opening_balance),
@@ -1089,4 +1204,14 @@ def account_detail(request, code):
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
         "rows": rows,
-    })
+    }
+
+
+@require_perm("accounting.view_account")
+def account_detail(request, code):
+    return _render_report(
+        request,
+        "account_detail",
+        "accounting/account_detail.html",
+        _account_detail_context(request, code),
+    )

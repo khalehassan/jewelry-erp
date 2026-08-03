@@ -4,7 +4,10 @@
 {% block content %}
 <div class="head-row">
     <div><h1 style="margin-bottom:2px;">Inventory Report</h1><div class="sub">{{ item_count }} piece(s) across {{ sku_count }} stock record(s) · as of {{ as_of }}</div></div>
-    <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        {% include "accounting/_export_buttons.html" %}
+        <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+    </div>
 </div>
 
 <div class="card" style="margin-top:20px;">

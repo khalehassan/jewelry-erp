@@ -14,7 +14,10 @@
         <h1 style="margin-bottom:2px;">{{ account.code }} — {{ account.name }}</h1>
         <div class="sub">{{ account.get_type_display }} account · Closing balance through {{ date_to }}: {{ account_balance }} EGP</div>
     </div>
-    <a class="btn ghost" href="{% url 'accounting:reports' %}">← Back to reports</a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        {% include "accounting/_export_buttons.html" %}
+        <a class="btn ghost" href="{% url 'accounting:reports' %}">← Back to reports</a>
+    </div>
 </div>
 
 <form method="get" class="card" style="margin-top:20px; display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;">

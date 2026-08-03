@@ -34,7 +34,10 @@
         <h1 style="margin-bottom:2px;">Trial Balance</h1>
         <div class="sub">Opening balance, movement for the period, and closing balance. Click any account to drill into its transactions.</div>
     </div>
-    <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        {% include "accounting/_export_buttons.html" %}
+        <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+    </div>
 </div>
 
 <form method="get" class="card filters" style="margin-top:20px;">

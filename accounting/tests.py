@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from io import BytesIO
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -9,6 +10,8 @@ from django.db import IntegrityError, transaction
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from openpyxl import load_workbook
+from pypdf import PdfReader
 
 from inventory.models import JewelryItem
 from payments.models import Payment
@@ -228,6 +231,199 @@ class BankMovementReportTests(TestCase):
         })
         self.assertEqual(reversed_dates.context["date_from"], "2026-07-01")
         self.assertEqual(reversed_dates.context["date_to"], "2026-07-31")
+
+
+class ReportExportTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="report-exporter",
+            password="test-password",
+            first_name="Report",
+            last_name="Owner",
+        )
+        self.user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="accounting",
+            codename="view_account",
+        ))
+        self.client.force_login(self.user)
+        create_entry(date(2026, 7, 1), "Owner capital deposited", [
+            ("1011", Decimal("1000.00"), Decimal("0.00")),
+            ("3010", Decimal("0.00"), Decimal("1000.00")),
+        ])
+        create_entry(date(2026, 7, 2), "Cash deposited to bank", [
+            ("1021", Decimal("200.00"), Decimal("0.00")),
+            ("1011", Decimal("0.00"), Decimal("200.00")),
+        ])
+
+    def _report_urls(self):
+        return [
+            reverse("accounting:reports"),
+            reverse("accounting:trial_balance"),
+            reverse("accounting:income_statement"),
+            reverse("accounting:balance_sheet"),
+            reverse("accounting:inventory_report"),
+            reverse("accounting:bank_movement"),
+            reverse("accounting:gold_movement"),
+            reverse("accounting:account_detail", args=["1011"]),
+        ]
+
+    def test_every_report_page_offers_excel_and_pdf_for_current_filters(self):
+        for url in self._report_urls():
+            with self.subTest(url=url):
+                response = self.client.get(url, {
+                    "from": "2026-07-01",
+                    "to": "2026-07-31",
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Download Excel")
+                self.assertContains(response, "Download PDF")
+                self.assertIn("from=2026-07-01", response.context["excel_export_url"])
+                self.assertIn("to=2026-07-31", response.context["excel_export_url"])
+                self.assertIn("export=xlsx", response.context["excel_export_url"])
+                self.assertIn("export=pdf", response.context["pdf_export_url"])
+
+        reports = self.client.get(reverse("accounting:reports"))
+        self.assertContains(reports, "All reports - Excel")
+        self.assertContains(reports, "All reports - PDF")
+
+    def test_every_report_downloads_valid_excel_and_pdf(self):
+        params = {"from": "2026-07-01", "to": "2026-07-31"}
+        for url in self._report_urls():
+            with self.subTest(url=url, file_format="xlsx"):
+                response = self.client.get(url, {**params, "export": "xlsx"})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response["Content-Type"],
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                self.assertIn("attachment;", response["Content-Disposition"])
+                workbook = load_workbook(BytesIO(response.content), data_only=False)
+                self.assertGreaterEqual(len(workbook.sheetnames), 1)
+                self.assertTrue(workbook.active["A1"].value)
+
+            with self.subTest(url=url, file_format="pdf"):
+                response = self.client.get(url, {**params, "export": "pdf"})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response["Content-Type"], "application/pdf")
+                self.assertTrue(response.content.startswith(b"%PDF-"))
+                self.assertGreaterEqual(len(PdfReader(BytesIO(response.content)).pages), 1)
+
+    def test_trial_balance_excel_has_typed_amounts_and_selected_period(self):
+        response = self.client.get(reverse("accounting:trial_balance"), {
+            "from": "2026-07-01",
+            "to": "2026-07-31",
+            "show": "all",
+            "level": "detail",
+            "export": "xlsx",
+        })
+
+        workbook = load_workbook(BytesIO(response.content), data_only=False)
+        sheet = workbook["Trial Balance"]
+        self.assertEqual(sheet["A1"].value, "Trial Balance")
+        self.assertEqual(sheet["A2"].value, "2026-07-01 to 2026-07-31")
+        cash_row = next(row for row in sheet.iter_rows() if row[0].value == "1011")
+        self.assertIsInstance(cash_row[5].value, (int, float))
+        self.assertEqual(cash_row[5].value, 1000)
+        self.assertEqual(cash_row[6].value, 200)
+        self.assertIn("#,##0.00", cash_row[5].number_format)
+        self.assertIsNotNone(sheet.freeze_panes)
+
+    def test_bank_pdf_contains_reconciliation_and_filter_details(self):
+        response = self.client.get(reverse("accounting:bank_movement"), {
+            "account": "1021",
+            "from": "2026-07-01",
+            "to": "2026-07-31",
+            "actual_balance": "200.00",
+            "export": "pdf",
+        })
+
+        reader = PdfReader(BytesIO(response.content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertIn("Bank Account Movement and Reconciliation", text)
+        self.assertIn("2026-07-01 to 2026-07-31", text)
+        self.assertIn("Cash deposited to bank", text)
+        self.assertIn("Matched", text)
+        first_page = reader.pages[0]
+        self.assertGreater(float(first_page.mediabox.width), float(first_page.mediabox.height))
+
+    def test_excel_treats_user_descriptions_as_text_not_formulas(self):
+        create_entry(date(2026, 7, 3), '=HYPERLINK("https://invalid.example","Open")', [
+            ("1011", Decimal("1.00"), Decimal("0.00")),
+            ("3010", Decimal("0.00"), Decimal("1.00")),
+        ])
+        response = self.client.get(
+            reverse("accounting:account_detail", args=["1011"]),
+            {"from": "2026-07-01", "to": "2026-07-31", "export": "xlsx"},
+        )
+
+        sheet = load_workbook(BytesIO(response.content), data_only=False).active
+        description_cell = next(
+            cell
+            for row in sheet.iter_rows()
+            for cell in row
+            if cell.value == '\'=HYPERLINK("https://invalid.example","Open")'
+        )
+        self.assertEqual(description_cell.data_type, "s")
+
+    def test_complete_report_pack_contains_all_main_reports(self):
+        params = {"from": "2026-07-01", "to": "2026-07-31"}
+        excel = self.client.get(
+            reverse("accounting:export_all_reports", args=["xlsx"]),
+            params,
+        )
+        workbook = load_workbook(BytesIO(excel.content), data_only=False)
+        self.assertEqual(workbook.sheetnames, [
+            "Reconciliation",
+            "Trial Balance",
+            "Income Statement",
+            "Balance Sheet",
+            "Inventory",
+            "Bank Movement",
+            "Gold Movement",
+        ])
+        self.assertEqual(workbook["Gold Movement"]["A2"].value, "2026-07-01 to 2026-07-31")
+
+        pdf = self.client.get(
+            reverse("accounting:export_all_reports", args=["pdf"]),
+            params,
+        )
+        reader = PdfReader(BytesIO(pdf.content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        for title in (
+            "Operational and Ledger Reconciliation",
+            "Trial Balance",
+            "Income Statement",
+            "Balance Sheet",
+            "Inventory Report",
+            "Bank Account Movement and Reconciliation",
+            "Gold Transaction Log",
+        ):
+            self.assertIn(title, text)
+        self.assertGreaterEqual(len(reader.pages), 7)
+
+    def test_exports_require_permission_and_reject_unknown_formats(self):
+        self.client.logout()
+        user_without_permission = get_user_model().objects.create_user(
+            username="no-report-export",
+            password="test-password",
+        )
+        self.client.force_login(user_without_permission)
+        denied = self.client.get(reverse("accounting:trial_balance"), {"export": "xlsx"})
+        self.assertRedirects(denied, reverse("sales:dashboard"))
+        denied_pack = self.client.get(
+            reverse("accounting:export_all_reports", args=["pdf"]),
+        )
+        self.assertRedirects(denied_pack, reverse("sales:dashboard"))
+
+        self.client.force_login(self.user)
+        self.assertEqual(
+            self.client.get(reverse("accounting:trial_balance"), {"export": "csv"}).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(reverse("accounting:export_all_reports", args=["csv"])).status_code,
+            404,
+        )
 
 
 class GoldMovementReportTests(TestCase):

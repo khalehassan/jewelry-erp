@@ -12,7 +12,13 @@
 {% endblock %}
 
 {% block content %}
-<h1>Reports</h1>
+<div class="head-row">
+    <div><h1 style="margin-bottom:2px;">Reports</h1><div class="sub">Review online or download a complete accounting report pack.</div></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <a class="btn" href="{% url 'accounting:export_all_reports' 'xlsx' %}?from={{ pack_date_from }}&amp;to={{ as_of }}">All reports - Excel</a>
+        <a class="btn" href="{% url 'accounting:export_all_reports' 'pdf' %}?from={{ pack_date_from }}&amp;to={{ as_of }}">All reports - PDF</a>
+    </div>
+</div>
 
 <div class="card" style="margin-bottom:20px;">
     <div class="head-row">
@@ -41,6 +47,9 @@
         {{ reconciliation.unposted.sales }} sale(s), {{ reconciliation.unposted.payments }} payment(s).
     </p>
     {% endif %}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
+        {% include "accounting/_export_buttons.html" %}
+    </div>
 </div>
 
 <a class="report-line" href="{% url 'accounting:gold_movement' %}">

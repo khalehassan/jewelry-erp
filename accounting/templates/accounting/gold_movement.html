@@ -58,6 +58,7 @@
     </div>
     <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" class="btn ghost" onclick="window.print()">Print</button>
+        {% include "accounting/_export_buttons.html" %}
         <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
     </div>
 </div>
