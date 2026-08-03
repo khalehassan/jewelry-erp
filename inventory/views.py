@@ -18,7 +18,9 @@ REQUIRED_IMPORT_COLUMNS = {
     "category",
     "karat",
     "weight_grams",
-    "cost_price",
+    "raw_gold_price_per_gram",
+    "craftsmanship_per_gram",
+    "stamp_charge",
     "location",
     "quantity",
 }
@@ -111,8 +113,28 @@ def _parse_import_file(uploaded_file):
                 return None
             return value
 
+        def nonnegative_decimal(column, label):
+            raw_value = row.get(column, "")
+            try:
+                value = Decimal(raw_value)
+            except (InvalidOperation, TypeError, ValueError):
+                row_errors.append(f"{label} must be a valid number of zero or more")
+                return None
+            if not value.is_finite() or value < 0:
+                row_errors.append(f"{label} cannot be negative")
+                return None
+            return value
+
         weight = positive_decimal("weight_grams", "weight_grams")
-        cost = positive_decimal("cost_price", "cost_price")
+        raw_gold_price = positive_decimal(
+            "raw_gold_price_per_gram",
+            "raw_gold_price_per_gram",
+        )
+        craftsmanship = nonnegative_decimal(
+            "craftsmanship_per_gram",
+            "craftsmanship_per_gram",
+        )
+        stamp = nonnegative_decimal("stamp_charge", "stamp_charge")
 
         quantity = None
         try:
@@ -134,7 +156,9 @@ def _parse_import_file(uploaded_file):
             "weight_grams": weight,
             "stone_details": row.get("stone_details", ""),
             "location": location,
-            "unit_cost": cost,
+            "raw_gold_price_per_gram": raw_gold_price,
+            "craftsmanship_per_gram": craftsmanship,
+            "stamp_charge": stamp,
             "quantity": quantity,
         }
         candidate = PurchaseLine(**values)
@@ -223,8 +247,7 @@ def import_stock(request):
 
         messages.success(
             request,
-            f"Imported {len(parsed_rows)} item(s) as Opening stock #{batch.pk}. "
-            f"Delete that purchase in Admin → Purchases to undo the whole batch."
+            f"Imported {len(parsed_rows)} item(s) as Opening stock #{batch.pk}."
         )
         return redirect("inventory:import_stock")
 

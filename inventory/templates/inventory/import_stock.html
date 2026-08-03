@@ -7,7 +7,7 @@
 <div class="card">
     <p>Prepare an Excel/Google Sheet with these column headers in the first row, then <b>Save As → CSV</b> and upload it here:</p>
     <p style="font-family:monospace; background:var(--bg); padding:10px 12px; border-radius:6px; overflow-x:auto;">
-        barcode, name, category, karat, weight_grams, cost_price, location, quantity
+        barcode, name, category, karat, weight_grams, raw_gold_price_per_gram, craftsmanship_per_gram, stamp_charge, location, quantity
     </p>
     <ul class="sub" style="line-height:1.9;">
         <li><b>barcode</b> — the code on the tag (leave blank to auto-generate a JW code)</li>
@@ -15,7 +15,9 @@
         <li><b>category</b> — ring / necklace / bracelet / earring / chain / pendant / other</li>
         <li><b>karat</b> — 18, 21, or 24</li>
         <li><b>weight_grams</b> — must be greater than zero, e.g. 5.50</li>
-        <li><b>cost_price</b> — must be greater than zero (EGP)</li>
+        <li><b>raw_gold_price_per_gram</b> — must be greater than zero (EGP/g)</li>
+        <li><b>craftsmanship_per_gram</b> — zero or more (EGP/g)</li>
+        <li><b>stamp_charge</b> — zero or more per piece (EGP)</li>
         <li><b>location</b> — safe or showcase</li>
         <li><b>quantity</b> — a whole number of at least 1</li>
     </ul>
@@ -30,7 +32,7 @@
 
 <div class="card" style="margin-top:22px;">
     <h2>Past imports</h2>
-    <p class="sub">Each import is one “Opening stock” purchase. Open it and delete it to remove that whole batch — its jewelry items and its journal entry go with it.</p>
+    <p class="sub">Each import is recorded as one permanent “Opening stock” purchase with its own inventory and accounting audit trail.</p>
     <table class="list">
         {% for b in imports %}
         <tr>

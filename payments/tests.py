@@ -46,7 +46,9 @@ class PaymentTestDataMixin:
             category=JewelryItem.Category.BRACELET,
             karat=JewelryItem.Karat.K18,
             weight_grams=Decimal("1.000"),
-            unit_cost=Decimal("800.00"),
+            raw_gold_price_per_gram=Decimal("800.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=1,
         )
         purchase.post_to_ledger()

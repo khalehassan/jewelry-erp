@@ -5,11 +5,11 @@ from django.db import transaction
 
 from .models import Account, JournalEntry, JournalLine
 
-# Once a transaction is posted to the ledger it is locked: correcting it means
-# deleting it (which removes its journal entry) and entering it again.
+# Once a transaction is posted to the ledger it is locked. Corrections are new
+# audit-trail transactions rather than destructive edits to posted history.
 POSTED_LOCK_MESSAGE = (
     "{what} is already posted to the ledger and cannot be changed. "
-    "Delete it and enter it again if it is wrong — deleting also removes its journal entry."
+    "Record a correcting transaction if it is wrong."
 )
 
 

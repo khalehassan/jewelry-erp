@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+from itertools import zip_longest
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -58,34 +59,53 @@ def new_purchase(request):
         weights = request.POST.getlist("weight")
         stones = request.POST.getlist("stone")
         locations = request.POST.getlist("location")
-        costs = request.POST.getlist("cost")
+        raw_gold_prices = request.POST.getlist("raw_gold_price")
+        craftsmanship_rates = request.POST.getlist("craftsmanship")
+        stamp_charges = request.POST.getlist("stamp")
         qtys = request.POST.getlist("qty")
 
         lines = []
         errors = []
-        for row_number, values in enumerate(zip(
-            barcodes, names, categories, karats, weights, stones, locations, costs, qtys
+        for row_number, values in enumerate(zip_longest(
+            barcodes, names, categories, karats, weights, stones, locations,
+            raw_gold_prices, craftsmanship_rates, stamp_charges, qtys,
+            fillvalue="",
         ), start=1):
-            barcode, name, category, karat, weight, stone, location, cost, qty = values
+            (
+                barcode, name, category, karat, weight, stone, location,
+                raw_gold_price, craftsmanship, stamp, qty,
+            ) = values
             name = name.strip()
-            has_input = any((barcode.strip(), name, weight.strip(), stone.strip(), cost.strip()))
+            has_input = any((
+                barcode.strip(), name, weight.strip(), stone.strip(),
+                raw_gold_price.strip(),
+            ))
             if not name:
                 if has_input:
                     errors.append(f"Item {row_number}: Name is required.")
                 continue
             try:
                 parsed_weight = Decimal(weight)
-                parsed_cost = Decimal(cost)
+                parsed_raw_gold_price = Decimal(raw_gold_price)
+                parsed_craftsmanship = Decimal(craftsmanship or "0")
+                parsed_stamp = Decimal(stamp or "0")
                 parsed_quantity = int(qty)
                 parsed_karat = int(karat)
             except (InvalidOperation, TypeError, ValueError):
-                errors.append(f"Item {row_number}: Enter valid numbers for weight, unit cost, and quantity.")
+                errors.append(
+                    f"Item {row_number}: Enter valid numbers for weight, raw gold price, "
+                    "craftsmanship, stamp, and quantity."
+                )
                 continue
 
             if not parsed_weight.is_finite() or parsed_weight <= 0:
                 errors.append(f"Item {row_number}: Weight must be greater than zero.")
-            if not parsed_cost.is_finite() or parsed_cost <= 0:
-                errors.append(f"Item {row_number}: Unit cost must be greater than zero.")
+            if not parsed_raw_gold_price.is_finite() or parsed_raw_gold_price <= 0:
+                errors.append(f"Item {row_number}: Raw gold price per gram must be greater than zero.")
+            if not parsed_craftsmanship.is_finite() or parsed_craftsmanship < 0:
+                errors.append(f"Item {row_number}: Craftsmanship per gram cannot be negative.")
+            if not parsed_stamp.is_finite() or parsed_stamp < 0:
+                errors.append(f"Item {row_number}: Stamp charge cannot be negative.")
             if parsed_quantity <= 0:
                 errors.append(f"Item {row_number}: Quantity must be at least 1.")
 
@@ -97,7 +117,9 @@ def new_purchase(request):
                 "weight_grams": parsed_weight,
                 "stone_details": stone.strip(),
                 "location": location,
-                "unit_cost": parsed_cost,
+                "raw_gold_price_per_gram": parsed_raw_gold_price,
+                "craftsmanship_per_gram": parsed_craftsmanship,
+                "stamp_charge": parsed_stamp,
                 "quantity": parsed_quantity,
             })
 

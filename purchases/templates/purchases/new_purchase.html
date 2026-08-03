@@ -4,7 +4,7 @@
 {% block head %}
 <style>
     .scroll { overflow-x: auto; }
-    table.linetable { width:100%; border-collapse:collapse; margin-top:8px; min-width:920px; }
+    table.linetable { width:100%; border-collapse:collapse; margin-top:8px; min-width:1320px; }
     table.linetable th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:8px 6px; white-space:nowrap; }
     table.linetable td { padding:5px; }
     table.linetable td.lineTotal { text-align:right; font-weight:700; white-space:nowrap; }
@@ -48,7 +48,9 @@
                     <th>Weight (g)</th>
                     <th>Stone</th>
                     <th>Location</th>
-                    <th>Unit cost</th>
+                    <th>Raw gold/g</th>
+                    <th>Craftsmanship/g</th>
+                    <th>Stamp/piece</th>
                     <th>Qty</th>
                     <th style="text-align:right">Line total</th>
                     <th></th>
@@ -68,14 +70,16 @@
                             {% for value, label in karats %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td><input type="number" name="weight" step="0.001" min="0.001" required></td>
+                    <td><input type="number" name="weight" class="weight" step="0.001" min="0.001" required></td>
                     <td><input type="text" name="stone" placeholder="optional"></td>
                     <td>
                         <select name="location">
                             {% for value, label in locations %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td><input type="number" name="cost" class="cost" step="0.01" min="0.01" required></td>
+                    <td><input type="number" name="raw_gold_price" class="rawGold" step="0.01" min="0.01" required></td>
+                    <td><input type="number" name="craftsmanship" class="craftsmanship" value="0.00" step="0.01" min="0" required></td>
+                    <td><input type="number" name="stamp" class="stamp" value="0.00" step="0.01" min="0" required></td>
                     <td><input type="number" name="qty" class="qty" value="1" step="1" min="1" required></td>
                     <td class="lineTotal">0.00</td>
                     <td><button type="button" class="removeBtn">✕</button></td>
@@ -106,9 +110,15 @@
     function recalc() {
         let grand = 0;
         linesEl.querySelectorAll(".line").forEach(row => {
-            const cost = parseFloat(row.querySelector(".cost").value) || 0;
+            const weight = parseFloat(row.querySelector(".weight").value) || 0;
+            const rawGold = parseFloat(row.querySelector(".rawGold").value) || 0;
+            const craftsmanship = parseFloat(row.querySelector(".craftsmanship").value) || 0;
+            const stamp = parseFloat(row.querySelector(".stamp").value) || 0;
             const qty = parseInt(row.querySelector(".qty").value) || 0;
-            const lineTotal = cost * qty;
+            const costPerPiece = Math.round(
+                (weight * (rawGold + craftsmanship) + stamp + Number.EPSILON) * 100
+            ) / 100;
+            const lineTotal = costPerPiece * qty;
             row.querySelector(".lineTotal").textContent = fmt(lineTotal);
             grand += lineTotal;
         });
@@ -120,6 +130,7 @@
         const newRow = firstRow.cloneNode(true);
         newRow.querySelectorAll("input").forEach(inp => {
             if (inp.name === "qty") inp.value = 1;
+            else if (inp.name === "craftsmanship" || inp.name === "stamp") inp.value = "0.00";
             else if (inp.type === "number") inp.value = "";
             else inp.value = "";
         });

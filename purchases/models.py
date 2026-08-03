@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
@@ -122,11 +122,26 @@ class PurchaseLine(models.Model):
     )
     stone_details = models.CharField(max_length=200, blank=True, default="")
     location = models.CharField(max_length=20, choices=JewelryItem.Location.choices, default=JewelryItem.Location.SAFE)
-    unit_cost = models.DecimalField(
+    raw_gold_price_per_gram = models.DecimalField(
+        "raw gold price/g",
+        max_digits=18,
+        decimal_places=9,
+        default=0,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    craftsmanship_per_gram = models.DecimalField(
+        "craftsmanship/g",
         max_digits=12,
         decimal_places=2,
         default=0,
-        validators=[MinValueValidator(Decimal("0.01"))],
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    stamp_charge = models.DecimalField(
+        "stamp/piece",
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
     quantity = models.PositiveIntegerField(
         default=1,
@@ -141,8 +156,16 @@ class PurchaseLine(models.Model):
                 name="purchase_line_weight_positive",
             ),
             models.CheckConstraint(
-                condition=models.Q(unit_cost__gt=0),
-                name="purchase_line_unit_cost_positive",
+                condition=models.Q(raw_gold_price_per_gram__gt=0),
+                name="purchase_line_raw_gold_price_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(craftsmanship_per_gram__gte=0),
+                name="purchase_line_craftsmanship_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(stamp_charge__gte=0),
+                name="purchase_line_stamp_nonnegative",
             ),
             models.CheckConstraint(
                 condition=models.Q(quantity__gt=0),
@@ -171,8 +194,17 @@ class PurchaseLine(models.Model):
         super().delete(*args, **kwargs)
 
     @property
+    def cost_per_piece(self):
+        amount = (
+            self.weight_grams
+            * (self.raw_gold_price_per_gram + self.craftsmanship_per_gram)
+            + self.stamp_charge
+        )
+        return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
     def line_total(self):
-        return self.unit_cost * self.quantity
+        return self.cost_per_piece * self.quantity
 
 
 @receiver(post_save, sender=PurchaseLine)
@@ -190,7 +222,7 @@ def create_stock_item(sender, instance, created, **kwargs):
             weight_grams=instance.weight_grams,
             stone_details=instance.stone_details,
             location=instance.location,
-            cost_price=instance.unit_cost,
+            cost_price=instance.cost_per_piece,
             quantity=instance.quantity,
             source_purchase_line=instance,
         )

@@ -30,7 +30,12 @@ class PurchaseLineInline(admin.TabularInline):
     model = PurchaseLine
     formset = PurchaseLineFormSet
     extra = 1
-    fields = ("barcode", "name", "category", "karat", "weight_grams", "stone_details", "location", "unit_cost", "quantity", "line_total_display")
+    fields = (
+        "barcode", "name", "category", "karat", "weight_grams",
+        "stone_details", "location", "raw_gold_price_per_gram",
+        "craftsmanship_per_gram", "stamp_charge", "quantity",
+        "line_total_display",
+    )
     readonly_fields = ("line_total_display",)
 
     @admin.display(description="Line total (EGP)")

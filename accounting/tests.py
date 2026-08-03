@@ -114,7 +114,9 @@ class GoldMovementReportTests(TestCase):
             name="21K chain",
             karat=21,
             weight_grams=Decimal("2.000"),
-            unit_cost=Decimal("2000.00"),
+            raw_gold_price_per_gram=Decimal("1000.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=2,
         )
         Purchase.objects.filter(pk=purchase.pk).update(
@@ -167,7 +169,9 @@ class GoldMovementReportTests(TestCase):
             name="Opening 18K gold",
             karat=18,
             weight_grams=Decimal("3.000"),
-            unit_cost=Decimal("1500.00"),
+            raw_gold_price_per_gram=Decimal("500.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=1,
         )
         Purchase.objects.filter(pk=opening.pk).update(
@@ -182,7 +186,9 @@ class GoldMovementReportTests(TestCase):
             name="18K ring",
             karat=18,
             weight_grams=Decimal("2.000"),
-            unit_cost=Decimal("1000.00"),
+            raw_gold_price_per_gram=Decimal("500.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=2,
         )
         Purchase.objects.filter(pk=purchase.pk).update(
@@ -441,7 +447,9 @@ class ReportConsistencyTests(TestCase):
             category="bracelet",
             karat=18,
             weight_grams=Decimal("2.000"),
-            unit_cost=Decimal("1000.00"),
+            raw_gold_price_per_gram=Decimal("500.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=2,
         )
         posted.post_to_ledger()
@@ -468,7 +476,9 @@ class ReportConsistencyTests(TestCase):
             category="ring",
             karat=21,
             weight_grams=Decimal("1.000"),
-            unit_cost=Decimal("500.00"),
+            raw_gold_price_per_gram=Decimal("500.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=1,
         )
 

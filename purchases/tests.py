@@ -50,8 +50,10 @@ class PurchaseAmountValidationTests(TestCase):
         invalid_values = [
             {"weight_grams": Decimal("0.000")},
             {"weight_grams": Decimal("-1.000")},
-            {"unit_cost": Decimal("0.00")},
-            {"unit_cost": Decimal("-200.00")},
+            {"raw_gold_price_per_gram": Decimal("0.00")},
+            {"raw_gold_price_per_gram": Decimal("-200.00")},
+            {"craftsmanship_per_gram": Decimal("-1.00")},
+            {"stamp_charge": Decimal("-1.00")},
             {"quantity": 0},
             {"quantity": -1},
         ]
@@ -64,26 +66,61 @@ class PurchaseAmountValidationTests(TestCase):
                     "name": "Invalid item",
                     "karat": 21,
                     "weight_grams": Decimal("2.000"),
-                    "unit_cost": Decimal("1000.00"),
+                    "raw_gold_price_per_gram": Decimal("500.00"),
+                    "craftsmanship_per_gram": Decimal("0.00"),
+                    "stamp_charge": Decimal("0.00"),
                     "quantity": 1,
                 }
                 values.update(overrides)
                 with self.assertRaises(ValidationError):
                     PurchaseLine.objects.create(**values)
 
-    def test_database_constraint_rejects_bypassed_zero_cost(self):
+    def test_database_constraints_reject_bypassed_invalid_cost_components(self):
         purchase = Purchase.objects.create()
+        invalid_values = [
+            {"raw_gold_price_per_gram": Decimal("0.00")},
+            {"craftsmanship_per_gram": Decimal("-1.00")},
+            {"stamp_charge": Decimal("-1.00")},
+        ]
 
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                PurchaseLine.objects.bulk_create([PurchaseLine(
-                    purchase=purchase,
-                    name="Bypassed invalid item",
-                    karat=21,
-                    weight_grams=Decimal("2.000"),
-                    unit_cost=Decimal("0.00"),
-                    quantity=1,
-                )])
+        for overrides in invalid_values:
+            with self.subTest(values=overrides):
+                values = {
+                    "purchase": purchase,
+                    "name": "Bypassed invalid item",
+                    "karat": 21,
+                    "weight_grams": Decimal("2.000"),
+                    "raw_gold_price_per_gram": Decimal("500.00"),
+                    "craftsmanship_per_gram": Decimal("0.00"),
+                    "stamp_charge": Decimal("0.00"),
+                    "quantity": 1,
+                }
+                values.update(overrides)
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        PurchaseLine.objects.bulk_create([PurchaseLine(**values)])
+
+    def test_cost_components_calculate_piece_stock_and_row_totals(self):
+        purchase = Purchase.objects.create()
+        line = PurchaseLine.objects.create(
+            purchase=purchase,
+            name="Costed gold ring",
+            karat=21,
+            weight_grams=Decimal("4.000"),
+            raw_gold_price_per_gram=Decimal("3000.00"),
+            craftsmanship_per_gram=Decimal("200.00"),
+            stamp_charge=Decimal("50.00"),
+            quantity=2,
+        )
+
+        self.assertEqual(line.cost_per_piece, Decimal("12850.00"))
+        self.assertEqual(line.line_total, Decimal("25700.00"))
+        self.assertEqual(purchase.total, Decimal("25700.00"))
+        self.assertEqual(line.created_item.cost_price, Decimal("12850.00"))
+
+        purchase.post_to_ledger()
+        self.assertEqual(purchase.journal_entry.total_debits, Decimal("25700.00"))
+        self.assertEqual(purchase.journal_entry.total_credits, Decimal("25700.00"))
 
     def test_empty_purchase_cannot_be_posted(self):
         purchase = Purchase.objects.create()
@@ -117,13 +154,53 @@ class PurchaseAmountValidationTests(TestCase):
             "weight": ["2.000"],
             "stone": [""],
             "location": ["safe"],
-            "cost": ["-200.00"],
+            "raw_gold_price": ["-200.00"],
+            "craftsmanship": ["0.00"],
+            "stamp": ["0.00"],
             "qty": ["1"],
         }, follow=True)
-        self.assertContains(negative_response, "Unit cost must be greater than zero.")
+        self.assertContains(negative_response, "Raw gold price per gram must be greater than zero.")
         self.assertEqual(Purchase.objects.count(), 0)
         self.assertEqual(PurchaseLine.objects.count(), 0)
         self.assertEqual(JewelryItem.objects.count(), 0)
+
+    def test_purchase_page_saves_the_new_cost_components(self):
+        user = get_user_model().objects.create_user("purchase-user", password="test")
+        user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="purchases",
+            codename="add_purchase",
+        ))
+        self.client.force_login(user)
+
+        page = self.client.get(reverse("purchases:new_purchase"))
+        self.assertContains(page, 'name="raw_gold_price"')
+        self.assertContains(page, 'name="craftsmanship"')
+        self.assertContains(page, 'name="stamp"')
+        self.assertNotContains(page, 'name="cost"')
+
+        response = self.client.post(reverse("purchases:new_purchase"), {
+            "barcode": ["COST-001"],
+            "name": ["Costed ring"],
+            "category": ["ring"],
+            "karat": ["21"],
+            "weight": ["4.000"],
+            "stone": [""],
+            "location": ["safe"],
+            "raw_gold_price": ["3000.00"],
+            "craftsmanship": ["200.00"],
+            "stamp": ["50.00"],
+            "qty": ["2"],
+        }, follow=True)
+
+        self.assertContains(response, "total 25,700.00 EGP")
+        line = PurchaseLine.objects.get()
+        self.assertEqual(line.raw_gold_price_per_gram, Decimal("3000.000000000"))
+        self.assertEqual(line.craftsmanship_per_gram, Decimal("200.00"))
+        self.assertEqual(line.stamp_charge, Decimal("50.00"))
+        self.assertEqual(line.cost_per_piece, Decimal("12850.00"))
+        self.assertEqual(line.line_total, Decimal("25700.00"))
+        self.assertEqual(line.created_item.cost_price, Decimal("12850.00"))
+        self.assertIsNotNone(line.purchase.journal_entry_id)
 
 
 class PurchaseInventoryDeletionTests(TransactionTestCase):
@@ -134,7 +211,9 @@ class PurchaseInventoryDeletionTests(TransactionTestCase):
             name="21K test chain",
             karat=21,
             weight_grams=Decimal(weight),
-            unit_cost=Decimal("1000.00"),
+            raw_gold_price_per_gram=Decimal("500.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
             quantity=quantity,
         )
         return purchase, line, line.created_item

@@ -13,7 +13,8 @@ from .models import JewelryItem
 
 class StockImportValidationTests(TestCase):
     headers = (
-        "barcode,name,category,karat,weight_grams,cost_price,location,quantity"
+        "barcode,name,category,karat,weight_grams,raw_gold_price_per_gram,"
+        "craftsmanship_per_gram,stamp_charge,location,quantity"
     )
 
     def setUp(self):
@@ -43,8 +44,8 @@ class StockImportValidationTests(TestCase):
 
     def test_valid_rows_create_one_complete_opening_stock_batch(self):
         response = self._upload([
-            "TAG-001,Gold Ring,Ring,21,4.500,12000.00,SAFE,1",
-            ",Gold Chain,chain,18,8.250,23000.00,showcase,2",
+            "TAG-001,Gold Ring,Ring,21,4.500,2500.00,100.00,50.00,SAFE,1",
+            ",Gold Chain,chain,18,8.250,2600.00,150.00,75.00,showcase,2",
         ])
 
         self.assertContains(response, "Imported 2 item(s) as Opening stock")
@@ -56,21 +57,26 @@ class StockImportValidationTests(TestCase):
         self.assertEqual(ring.category, JewelryItem.Category.RING)
         self.assertEqual(ring.location, JewelryItem.Location.SAFE)
         self.assertEqual(ring.weight_grams, Decimal("4.500"))
+        self.assertEqual(ring.cost_price, Decimal("11750.00"))
 
     def test_each_invalid_controlled_field_cancels_the_import(self):
         invalid_rows = [
-            ("TAG-001,Gold Ring,watch,21,4.500,12000.00,safe,1", "category must be one of"),
-            ("TAG-001,Gold Ring,ring,22,4.500,12000.00,safe,1", "karat must be one of"),
-            ("TAG-001,Gold Ring,ring,21,4.500,12000.00,vault,1", "location must be one of"),
-            ("TAG-001,Gold Ring,ring,21,0,12000.00,safe,1", "weight_grams must be greater than zero"),
-            ("TAG-001,Gold Ring,ring,21,-1,12000.00,safe,1", "weight_grams must be greater than zero"),
-            ("TAG-001,Gold Ring,ring,21,abc,12000.00,safe,1", "weight_grams must be a valid number"),
-            ("TAG-001,Gold Ring,ring,21,4.500,0,safe,1", "cost_price must be greater than zero"),
-            ("TAG-001,Gold Ring,ring,21,4.500,-1,safe,1", "cost_price must be greater than zero"),
-            ("TAG-001,Gold Ring,ring,21,4.500,abc,safe,1", "cost_price must be a valid number"),
-            ("TAG-001,Gold Ring,ring,21,4.500,12000.00,safe,0", "quantity must be at least 1"),
-            ("TAG-001,Gold Ring,ring,21,4.500,12000.00,safe,-1", "quantity must be at least 1"),
-            ("TAG-001,Gold Ring,ring,21,4.500,12000.00,safe,1.5", "quantity must be a whole number"),
+            ("TAG-001,Gold Ring,watch,21,4.500,2500.00,100.00,50.00,safe,1", "category must be one of"),
+            ("TAG-001,Gold Ring,ring,22,4.500,2500.00,100.00,50.00,safe,1", "karat must be one of"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,50.00,vault,1", "location must be one of"),
+            ("TAG-001,Gold Ring,ring,21,0,2500.00,100.00,50.00,safe,1", "weight_grams must be greater than zero"),
+            ("TAG-001,Gold Ring,ring,21,-1,2500.00,100.00,50.00,safe,1", "weight_grams must be greater than zero"),
+            ("TAG-001,Gold Ring,ring,21,abc,2500.00,100.00,50.00,safe,1", "weight_grams must be a valid number"),
+            ("TAG-001,Gold Ring,ring,21,4.500,0,100.00,50.00,safe,1", "raw_gold_price_per_gram must be greater than zero"),
+            ("TAG-001,Gold Ring,ring,21,4.500,-1,100.00,50.00,safe,1", "raw_gold_price_per_gram must be greater than zero"),
+            ("TAG-001,Gold Ring,ring,21,4.500,abc,100.00,50.00,safe,1", "raw_gold_price_per_gram must be a valid number"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,-1,50.00,safe,1", "craftsmanship_per_gram cannot be negative"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,abc,50.00,safe,1", "craftsmanship_per_gram must be a valid number"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,-1,safe,1", "stamp_charge cannot be negative"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,abc,safe,1", "stamp_charge must be a valid number"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,50.00,safe,0", "quantity must be at least 1"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,50.00,safe,-1", "quantity must be at least 1"),
+            ("TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,50.00,safe,1.5", "quantity must be a whole number"),
         ]
 
         for row, message in invalid_rows:
@@ -82,8 +88,8 @@ class StockImportValidationTests(TestCase):
 
     def test_one_invalid_row_rolls_back_other_valid_rows(self):
         response = self._upload([
-            "TAG-001,Valid Ring,ring,21,4.500,12000.00,safe,1",
-            "TAG-002,Invalid Ring,ring,99,3.000,9000.00,safe,1",
+            "TAG-001,Valid Ring,ring,21,4.500,2500.00,100.00,50.00,safe,1",
+            "TAG-002,Invalid Ring,ring,99,3.000,2500.00,100.00,50.00,safe,1",
         ])
 
         self.assertContains(response, "Row 3")
@@ -92,10 +98,13 @@ class StockImportValidationTests(TestCase):
 
     def test_missing_headers_and_invalid_encoding_are_rejected(self):
         response = self._upload(
-            ["TAG-001,Gold Ring,ring,21,4.500,safe,1"],
-            headers="barcode,name,category,karat,weight_grams,location,quantity",
+            ["TAG-001,Gold Ring,ring,21,4.500,100.00,50.00,safe,1"],
+            headers=(
+                "barcode,name,category,karat,weight_grams,"
+                "craftsmanship_per_gram,stamp_charge,location,quantity"
+            ),
         )
-        self.assertContains(response, "Missing required column(s): cost_price")
+        self.assertContains(response, "Missing required column(s): raw_gold_price_per_gram")
         self.assert_no_import_records()
 
         response = self._upload([], raw_bytes=b"\xff\xfe\x00\x00")
@@ -104,8 +113,8 @@ class StockImportValidationTests(TestCase):
 
     def test_duplicate_barcodes_are_rejected_without_silent_replacement(self):
         response = self._upload([
-            "TAG-001,Gold Ring,ring,21,4.500,12000.00,safe,1",
-            "TAG-001,Gold Chain,chain,18,6.000,15000.00,safe,1",
+            "TAG-001,Gold Ring,ring,21,4.500,2500.00,100.00,50.00,safe,1",
+            "TAG-001,Gold Chain,chain,18,6.000,2500.00,100.00,50.00,safe,1",
         ])
         self.assertContains(response, "barcode TAG-001 is already used on row 2")
         self.assert_no_import_records()
@@ -121,7 +130,7 @@ class StockImportValidationTests(TestCase):
             quantity=1,
         )
         response = self._upload([
-            "EXISTING-001,Another Ring,ring,21,3.000,7000.00,safe,1",
+            "EXISTING-001,Another Ring,ring,21,3.000,2500.00,100.00,50.00,safe,1",
         ])
         self.assertContains(response, "barcode EXISTING-001 already exists in inventory")
         self.assertEqual(Purchase.objects.filter(is_opening=True).count(), 0)
