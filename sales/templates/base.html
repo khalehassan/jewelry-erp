@@ -58,6 +58,7 @@
                 {% if perms.purchases.add_purchase %}<a href="{% url 'purchases:new_purchase' %}">New Purchase</a>{% endif %}
                 {% if perms.payments.add_payment %}<a href="{% url 'payments:payments' %}">Payments</a>{% endif %}
                 {% if perms.inventory.add_jewelryitem %}<a href="{% url 'inventory:import_stock' %}">Import</a>{% endif %}
+                {% if perms.accounting.add_journalentry %}<a href="{% url 'accounting:new_journal_entry' %}">New Journal Entry</a>{% endif %}
                 {% if perms.accounting.view_account %}<a href="{% url 'accounting:reports' %}">Reports</a>{% endif %}
                 {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
                 <form method="post" action="{% url 'logout' %}" style="display:inline; margin:0;">

@@ -63,8 +63,17 @@ class JournalLineInline(admin.TabularInline):
 @admin.register(JournalEntry)
 class JournalEntryAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     inlines = [JournalLineInline]
-    list_display = ("id", "date", "description", "total_display")
-    readonly_fields = ("created_at",)
+    list_display = (
+        "id", "date", "description", "source", "created_by", "total_display",
+    )
+    list_filter = ("source", "date")
+    readonly_fields = ("source", "created_by", "created_at")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.source = JournalEntry.Source.MANUAL
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_change_permission(self, request, obj=None):
         # An existing entry is posted history. Corrections require a new entry.

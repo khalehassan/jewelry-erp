@@ -1,5 +1,7 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from itertools import zip_longest
 
+from django.core.exceptions import ValidationError
 from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
@@ -12,7 +14,8 @@ from payments.models import Payment
 from purchases.models import Purchase, PurchaseLine
 from sales.models import Sale, SaleLine
 from . import mapping
-from .models import Account, JournalLine
+from .models import Account, JournalEntry, JournalLine
+from .services import create_entry
 
 
 def require_perm(perm):
@@ -37,6 +40,97 @@ def _weight(x):
 
 def _round_money(value):
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+@require_perm("accounting.add_journalentry")
+def new_journal_entry(request):
+    accounts = list(Account.objects.filter(is_group=False).order_by("type", "code"))
+    account_groups = []
+    for account_type, label in Account.Type.choices:
+        type_accounts = [account for account in accounts if account.type == account_type]
+        if type_accounts:
+            account_groups.append({"label": label, "accounts": type_accounts})
+
+    date_value = timezone.localdate().isoformat()
+    description = ""
+    rows = [
+        {"account": "", "debit": "", "credit": ""},
+        {"account": "", "debit": "", "credit": ""},
+    ]
+    errors = []
+
+    if request.method == "POST":
+        date_value = request.POST.get("date", "").strip()
+        description = request.POST.get("description", "").strip()
+        rows = [
+            {
+                "account": str(account_code).strip(),
+                "debit": str(debit).strip(),
+                "credit": str(credit).strip(),
+            }
+            for account_code, debit, credit in zip_longest(
+                request.POST.getlist("account"),
+                request.POST.getlist("debit"),
+                request.POST.getlist("credit"),
+                fillvalue="",
+            )
+        ]
+        rows = [row for row in rows if any(row.values())]
+        while len(rows) < 2:
+            rows.append({"account": "", "debit": "", "credit": ""})
+
+        entry_date = parse_date(date_value)
+        if entry_date is None:
+            errors.append("Enter a valid journal date.")
+        if not description:
+            errors.append("Enter a clear description for this journal entry.")
+        elif len(description) > 255:
+            errors.append("The description cannot exceed 255 characters.")
+
+        posting_lines = []
+        for row_number, row in enumerate(rows, start=1):
+            if not row["account"]:
+                errors.append(f"Journal line {row_number}: choose an account.")
+                continue
+            posting_lines.append((
+                row["account"],
+                row["debit"] or "0",
+                row["credit"] or "0",
+            ))
+
+        if not errors:
+            try:
+                entry = create_entry(
+                    entry_date,
+                    description,
+                    posting_lines,
+                    source=JournalEntry.Source.MANUAL,
+                    created_by=request.user,
+                )
+            except ValidationError as error:
+                errors.extend(error.messages)
+            else:
+                messages.success(
+                    request,
+                    f"Manual journal entry #{entry.pk} was posted successfully.",
+                )
+                return redirect("accounting:new_journal_entry")
+
+    recent_entries = (
+        JournalEntry.objects
+        .filter(source=JournalEntry.Source.MANUAL)
+        .select_related("created_by")
+        .annotate(posted_total=Sum("lines__debit"))
+        .order_by("-created_at")[:10]
+    )
+    return render(request, "accounting/new_journal_entry.html", {
+        "account_groups": account_groups,
+        "date_value": date_value,
+        "description": description,
+        "rows": rows,
+        "errors": errors,
+        "recent_entries": recent_entries,
+    })
 
 
 def _line_totals(date_from=None, date_to=None, account_ids=None):

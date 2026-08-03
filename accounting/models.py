@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -61,12 +62,39 @@ class Account(models.Model):
 
 
 class JournalEntry(models.Model):
+    class Source(models.TextChoices):
+        AUTOMATED = "automated", "Automated"
+        MANUAL = "manual", "Manual"
+
     date = models.DateField(default=timezone.localdate)
     description = models.CharField(max_length=255, blank=True)
+    source = models.CharField(
+        max_length=10,
+        choices=Source.choices,
+        default=Source.AUTOMATED,
+        editable=False,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        editable=False,
+        on_delete=models.PROTECT,
+        related_name="journal_entries_created",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-date", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(source="automated")
+                    | models.Q(source="manual", created_by__isnull=False)
+                ),
+                name="journal_entry_source_has_creator",
+            ),
+        ]
 
     def __str__(self):
         return f"Entry #{self.pk} — {self.date}"

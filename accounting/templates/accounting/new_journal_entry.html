@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}New Journal Entry · Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>
+    .journal-layout { display:grid; grid-template-columns:minmax(0, 1fr) 280px; gap:18px; align-items:start; }
+    .warning { padding:12px 14px; border:1px solid #d4a62f; background:rgba(212,166,47,.10); border-radius:8px; margin-bottom:16px; font-size:14px; }
+    .errors { padding:12px 14px; border:1px solid #bb3e3e; background:rgba(187,62,62,.10); color:#c84949; border-radius:8px; margin-bottom:16px; }
+    .errors ul { margin:0; padding-left:20px; }
+    .field-row { display:grid; grid-template-columns:180px minmax(0, 1fr); gap:14px; }
+    textarea { width:100%; min-height:76px; padding:9px; font:inherit; border:1px solid var(--line); border-radius:8px; resize:vertical; background:var(--panel); color:var(--ink); }
+    textarea:focus { outline:2px solid var(--gold); outline-offset:1px; }
+    .line-table { width:100%; border-collapse:collapse; margin-top:18px; }
+    .line-table th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+    .line-table th.amount, .line-table td.amount { text-align:right; }
+    .line-table td { padding:7px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+    .line-table select { width:100%; min-width:210px; }
+    .line-table input { width:125px; text-align:right; }
+    .remove-line { border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:19px; padding:6px 8px; }
+    .remove-line:hover { color:#c84949; }
+    .totals { display:grid; grid-template-columns:1fr auto auto; gap:12px 24px; padding:12px 46px 12px 6px; font-weight:700; border-bottom:1px solid var(--line); }
+    .totals .amount { min-width:125px; text-align:right; }
+    .balance-status { margin:10px 0 0; text-align:right; font-size:14px; font-weight:700; }
+    .balanced { color:var(--good); }
+    .unbalanced { color:#c84949; }
+    .actions { display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; align-items:center; margin-top:18px; }
+    .recent { list-style:none; margin:0; padding:0; }
+    .recent li { padding:10px 0; border-bottom:1px solid var(--line); }
+    .recent li:last-child { border-bottom:0; }
+    .recent strong, .recent span { display:block; }
+    .recent span { color:var(--muted); font-size:13px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    @media (max-width:800px) {
+        .journal-layout { grid-template-columns:1fr; }
+        .field-row { grid-template-columns:1fr; gap:0; }
+        .line-scroll { overflow-x:auto; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div>
+        <h1>New Manual Journal Entry</h1>
+        <p class="sub">Post a balanced debit and credit entry directly to the general ledger.</p>
+    </div>
+    {% if perms.accounting.view_account %}<a class="btn ghost" href="{% url 'accounting:trial_balance' %}">View trial balance</a>{% endif %}
+</div>
+
+<div class="journal-layout">
+    <section class="card">
+        <div class="warning">
+            <strong>Permanent accounting record:</strong> this entry posts immediately and cannot be edited or deleted. If it is wrong, post an equal and opposite correcting entry.
+        </div>
+
+        {% if errors %}
+        <div class="errors" role="alert">
+            <strong>The entry was not posted:</strong>
+            <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+
+        <form method="post" id="journal-form">
+            {% csrf_token %}
+            <div class="field-row">
+                <div>
+                    <label for="id_date">Journal date</label>
+                    <input id="id_date" name="date" type="date" value="{{ date_value }}" required>
+                </div>
+                <div>
+                    <label for="id_description">Description</label>
+                    <textarea id="id_description" name="description" maxlength="255" required placeholder="Explain the business reason for this entry">{{ description }}</textarea>
+                </div>
+            </div>
+
+            <div class="line-scroll">
+                <table class="line-table">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th class="amount">Debit (EGP)</th>
+                            <th class="amount">Credit (EGP)</th>
+                            <th><span class="sr-only">Remove</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="journal-lines">
+                        {% for row in rows %}
+                        <tr class="journal-line">
+                            <td>
+                                <select name="account" aria-label="Account for line {{ forloop.counter }}">
+                                    <option value="">Choose account</option>
+                                    {% for group in account_groups %}
+                                    <optgroup label="{{ group.label }}">
+                                        {% for account in group.accounts %}
+                                        <option value="{{ account.code }}"{% if row.account == account.code %} selected{% endif %}>{{ account.code }} — {{ account.name }}</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td class="amount"><input name="debit" type="number" min="0" step="0.01" inputmode="decimal" value="{{ row.debit }}" aria-label="Debit for line {{ forloop.counter }}"></td>
+                            <td class="amount"><input name="credit" type="number" min="0" step="0.01" inputmode="decimal" value="{{ row.credit }}" aria-label="Credit for line {{ forloop.counter }}"></td>
+                            <td><button class="remove-line" type="button" title="Remove line" aria-label="Remove line">×</button></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="totals" aria-live="polite">
+                <span>Totals</span>
+                <span class="amount" id="total-debits">0.00</span>
+                <span class="amount" id="total-credits">0.00</span>
+            </div>
+            <p class="balance-status unbalanced" id="balance-status" aria-live="polite">Difference: EGP 0.00</p>
+
+            <div class="actions">
+                <button class="btn ghost" id="add-line" type="button">+ Add line</button>
+                <button class="btn" type="submit">Post journal entry</button>
+            </div>
+        </form>
+    </section>
+
+    <aside class="card">
+        <h2>Recent manual entries</h2>
+        {% if recent_entries %}
+        <ul class="recent">
+            {% for entry in recent_entries %}
+            <li>
+                <strong>#{{ entry.pk }} · EGP {{ entry.posted_total|floatformat:2 }}</strong>
+                <span>{{ entry.date }} · {{ entry.created_by.username }}</span>
+                <span>{{ entry.description }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="sub">No manual journal entries have been posted yet.</p>
+        {% endif %}
+    </aside>
+</div>
+
+<template id="journal-line-template">
+    <tr class="journal-line">
+        <td>
+            <select name="account" aria-label="Account">
+                <option value="">Choose account</option>
+                {% for group in account_groups %}
+                <optgroup label="{{ group.label }}">
+                    {% for account in group.accounts %}<option value="{{ account.code }}">{{ account.code }} — {{ account.name }}</option>{% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+        </td>
+        <td class="amount"><input name="debit" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Debit"></td>
+        <td class="amount"><input name="credit" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Credit"></td>
+        <td><button class="remove-line" type="button" title="Remove line" aria-label="Remove line">×</button></td>
+    </tr>
+</template>
+
+<script>
+(() => {
+    const body = document.getElementById("journal-lines");
+    const template = document.getElementById("journal-line-template");
+    const debitTotal = document.getElementById("total-debits");
+    const creditTotal = document.getElementById("total-credits");
+    const status = document.getElementById("balance-status");
+
+    function amount(input) {
+        const value = Number.parseFloat(input.value);
+        return Number.isFinite(value) ? value : 0;
+    }
+
+    function recalculate() {
+        let debits = 0;
+        let credits = 0;
+        body.querySelectorAll(".journal-line").forEach((row) => {
+            debits += amount(row.querySelector('[name="debit"]'));
+            credits += amount(row.querySelector('[name="credit"]'));
+        });
+        debitTotal.textContent = debits.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+        creditTotal.textContent = credits.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+        const difference = Math.abs(debits - credits);
+        const balanced = debits > 0 && difference < 0.005;
+        status.textContent = balanced ? "Balanced and ready to post" : `Difference: EGP ${difference.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+        status.className = `balance-status ${balanced ? "balanced" : "unbalanced"}`;
+    }
+
+    function bindRow(row) {
+        const debit = row.querySelector('[name="debit"]');
+        const credit = row.querySelector('[name="credit"]');
+        debit.addEventListener("input", () => {
+            if (amount(debit) > 0) credit.value = "";
+            recalculate();
+        });
+        credit.addEventListener("input", () => {
+            if (amount(credit) > 0) debit.value = "";
+            recalculate();
+        });
+        row.querySelector(".remove-line").addEventListener("click", () => {
+            const rows = body.querySelectorAll(".journal-line");
+            if (rows.length > 2) row.remove();
+            else row.querySelectorAll("select, input").forEach((field) => field.value = "");
+            recalculate();
+        });
+    }
+
+    body.querySelectorAll(".journal-line").forEach(bindRow);
+    document.getElementById("add-line").addEventListener("click", () => {
+        const row = template.content.firstElementChild.cloneNode(true);
+        body.appendChild(row);
+        bindRow(row);
+    });
+    recalculate();
+})();
+</script>
+{% endblock %}

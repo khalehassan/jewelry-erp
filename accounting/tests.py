@@ -499,6 +499,8 @@ class AutomatedPostingControlTests(TestCase):
         ])
 
         self.assertTrue(entry.is_balanced)
+        self.assertEqual(entry.source, JournalEntry.Source.AUTOMATED)
+        self.assertIsNone(entry.created_by)
         self.assertEqual(entry.total_debits, Decimal("100.01"))
         self.assertEqual(entry.total_credits, Decimal("100.01"))
         self.assertEqual(entry.lines.count(), 2)
@@ -647,6 +649,126 @@ class AutomatedPostingControlTests(TestCase):
 
         self.assertFalse(entry.is_balanced)
         self.assertEqual(entry.lines.count(), 0)
+
+
+class ManualJournalEntryPageTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="ledger-accountant",
+            password="test-password",
+        )
+        self.user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="accounting",
+            codename="add_journalentry",
+        ))
+        self.client.force_login(self.user)
+        self.url = reverse("accounting:new_journal_entry")
+        self.cash = Account.objects.get(code="1011")
+        self.capital = Account.objects.get(code="3010")
+
+    def test_authorized_user_can_open_page_and_only_select_detail_accounts(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        selectable = [
+            account
+            for group in response.context["account_groups"]
+            for account in group["accounts"]
+        ]
+        self.assertTrue(selectable)
+        self.assertTrue(all(not account.is_group for account in selectable))
+        self.assertContains(response, "Permanent accounting record")
+        self.assertContains(response, "New Journal Entry")
+
+    def test_balanced_manual_entry_posts_with_user_audit_attribution(self):
+        response = self.client.post(self.url, {
+            "date": "2026-08-03",
+            "description": "Owner deposited cash capital",
+            "account": [self.cash.code, self.capital.code],
+            "debit": ["1000.00", ""],
+            "credit": ["", "1000.00"],
+        }, follow=True)
+
+        self.assertRedirects(response, self.url)
+        entry = JournalEntry.objects.get()
+        self.assertEqual(entry.date, date(2026, 8, 3))
+        self.assertEqual(entry.description, "Owner deposited cash capital")
+        self.assertEqual(entry.source, JournalEntry.Source.MANUAL)
+        self.assertEqual(entry.created_by, self.user)
+        self.assertTrue(entry.is_balanced)
+        self.assertEqual(entry.total_debits, Decimal("1000.00"))
+        self.assertContains(response, f"Manual journal entry #{entry.pk} was posted successfully")
+        self.assertContains(response, "Owner deposited cash capital")
+
+    def test_unbalanced_or_negative_entry_is_rejected_without_partial_write(self):
+        invalid_rows = [
+            (["100.00", ""], ["", "99.00"], "not balanced"),
+            (["-100.00", ""], ["", "100.00"], "cannot be negative"),
+        ]
+
+        for debits, credits, expected_error in invalid_rows:
+            with self.subTest(expected_error=expected_error):
+                response = self.client.post(self.url, {
+                    "date": "2026-08-03",
+                    "description": "Invalid manual entry",
+                    "account": [self.cash.code, self.capital.code],
+                    "debit": debits,
+                    "credit": credits,
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, expected_error)
+                self.assertContains(response, "Invalid manual entry")
+                self.assertEqual(JournalEntry.objects.count(), 0)
+                self.assertEqual(JournalLine.objects.count(), 0)
+
+    def test_missing_description_and_incomplete_rows_are_rejected(self):
+        response = self.client.post(self.url, {
+            "date": "invalid-date",
+            "description": "",
+            "account": [self.cash.code, ""],
+            "debit": ["100.00", ""],
+            "credit": ["", "100.00"],
+        })
+
+        self.assertContains(response, "Enter a valid journal date")
+        self.assertContains(response, "Enter a clear description")
+        self.assertContains(response, "Journal line 2: choose an account")
+        self.assertEqual(JournalEntry.objects.count(), 0)
+
+    def test_group_account_is_rejected_even_when_posted_directly(self):
+        group = Account.objects.filter(is_group=True).first()
+        response = self.client.post(self.url, {
+            "date": "2026-08-03",
+            "description": "Attempted group posting",
+            "account": [group.code, self.capital.code],
+            "debit": ["100.00", ""],
+            "credit": ["", "100.00"],
+        })
+
+        self.assertContains(response, "heading, not a postable account")
+        self.assertEqual(JournalEntry.objects.count(), 0)
+
+    def test_permission_controls_page_and_navigation(self):
+        self.client.logout()
+        user_without_permission = get_user_model().objects.create_user(
+            username="no-ledger-access",
+            password="test-password",
+        )
+        self.client.force_login(user_without_permission)
+
+        response = self.client.get(self.url)
+        self.assertRedirects(response, reverse("sales:dashboard"))
+        dashboard = self.client.get(reverse("sales:dashboard"))
+        self.assertNotContains(dashboard, "New Journal Entry")
+
+    def test_database_requires_creator_for_manual_source(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                JournalEntry.objects.create(
+                    date=date(2026, 8, 3),
+                    description="Missing audit user",
+                    source=JournalEntry.Source.MANUAL,
+                )
 
 
 class ReportConsistencyTests(TestCase):

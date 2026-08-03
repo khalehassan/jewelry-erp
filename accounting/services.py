@@ -22,7 +22,14 @@ def deletion_origin_includes(origin, model, pk):
     return False
 
 
-def create_entry(date, description, lines):
+def create_entry(
+    date,
+    description,
+    lines,
+    *,
+    source=JournalEntry.Source.AUTOMATED,
+    created_by=None,
+):
     """lines: a list of (account_code, debit, credit) tuples."""
     try:
         raw_lines = list(lines)
@@ -31,7 +38,12 @@ def create_entry(date, description, lines):
     if len(raw_lines) < 2:
         raise ValidationError("A journal entry must contain at least two posting lines.")
 
-    entry_candidate = JournalEntry(date=date, description=description)
+    entry_candidate = JournalEntry(
+        date=date,
+        description=description,
+        source=source,
+        created_by=created_by,
+    )
     entry_candidate.full_clean()
 
     # Resolve and validate every account and amount BEFORE creating anything,
