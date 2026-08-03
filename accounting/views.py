@@ -74,23 +74,109 @@ def _account_balance(code, date_to=None):
     return _normal_balance(account, debit, credit)
 
 
-def _by_type(account_type, date_from=None, date_to=None):
-    """Ledger balances for detail accounts in one explicit reporting period."""
-    accounts = list(Account.objects.filter(type=account_type, is_group=False))
+def _statement_tree(account_type, date_from=None, date_to=None, show="nonzero"):
+    """Roll detail-account balances into the hierarchy used by the Trial Balance."""
+    accounts = list(
+        Account.objects.filter(type=account_type)
+        .select_related("parent")
+        .order_by("code")
+    )
+    account_ids = {account.pk for account in accounts}
     totals = _line_totals(
         date_from=date_from,
         date_to=date_to,
+        account_ids=list(account_ids),
+    )
+    zero = Decimal("0.00")
+    own_balances = {}
+    children = {account.pk: [] for account in accounts}
+    for account in accounts:
+        debit, credit = totals.get(account.pk, (zero, zero))
+        own_balances[account.pk] = _normal_balance(account, debit, credit)
+        if account.parent_id in children:
+            children[account.parent_id].append(account.pk)
+
+    rolled = {}
+    branch_active = {}
+
+    def roll_up(account_id):
+        if account_id in rolled:
+            return rolled[account_id]
+        balance = own_balances[account_id]
+        active = balance != 0
+        for child_id in children[account_id]:
+            balance += roll_up(child_id)
+            active = active or branch_active[child_id]
+        rolled[account_id] = balance
+        branch_active[account_id] = active
+        return balance
+
+    for account in accounts:
+        roll_up(account.pk)
+
+    by_id = {account.pk: account for account in accounts}
+
+    def descendant_rows(parent_id, depth=1):
+        rows = []
+        for child_id in children[parent_id]:
+            child = by_id[child_id]
+            if show != "all" and not branch_active[child_id]:
+                continue
+            balance = rolled[child_id] if child.is_group else own_balances[child_id]
+            rows.append({
+                "account": child,
+                "balance": _money(balance),
+                "balance_class": "negative" if balance < 0 else "positive",
+                "depth": depth,
+                "indent": depth * 18,
+            })
+            if child.is_group:
+                rows.extend(descendant_rows(child_id, depth + 1))
+        return rows
+
+    roots = [
+        account for account in accounts
+        if account.parent_id not in account_ids
+    ]
+    sections = []
+    for root in roots:
+        if show != "all" and not branch_active[root.pk]:
+            continue
+        sections.append({
+            "account": root,
+            "balance": _money(rolled[root.pk]),
+            "balance_class": "negative" if rolled[root.pk] < 0 else "positive",
+            "rows": descendant_rows(root.pk),
+        })
+
+    detail_accounts = [account for account in accounts if not account.is_group]
+    total = sum((own_balances[account.pk] for account in detail_accounts), zero)
+    return {
+        "sections": sections,
+        "total": total,
+        "active_count": sum(
+            1 for account in detail_accounts if own_balances[account.pk] != 0
+        ),
+        "detail_count": len(detail_accounts),
+    }
+
+
+def _trial_balance_closing_control(date_to):
+    """Closing debit and credit totals for detail accounts, matching Trial Balance."""
+    accounts = list(Account.objects.filter(is_group=False))
+    totals = _line_totals(
+        date_to=date_to,
         account_ids=[account.pk for account in accounts],
     )
-    rows = []
-    total = Decimal("0.00")
+    zero = Decimal("0.00")
+    total_debit = zero
+    total_credit = zero
     for account in accounts:
-        debit, credit = totals.get(account.pk, (Decimal("0.00"), Decimal("0.00")))
-        balance = _normal_balance(account, debit, credit)
-        if balance:
-            rows.append({"account": account, "balance": _money(balance)})
-        total += balance
-    return rows, total
+        debit, credit = totals.get(account.pk, (zero, zero))
+        closing_debit, closing_credit = _split(debit - credit)
+        total_debit += closing_debit
+        total_credit += closing_credit
+    return total_debit, total_credit
 
 
 def _operational_reconciliation(as_of):
@@ -333,49 +419,81 @@ def income_statement(request):
         date_from, date_to = date_to, date_from
         messages.info(request, "The dates were reversed, so they have been put in chronological order.")
 
-    revenue_rows, revenue_total = _by_type(
+    show = request.GET.get("show") or "nonzero"
+    if show not in ("nonzero", "all"):
+        show = "nonzero"
+    revenue = _statement_tree(
         Account.Type.REVENUE,
         date_from=date_from,
         date_to=date_to,
+        show=show,
     )
-    expense_rows, expense_total = _by_type(
+    expenses = _statement_tree(
         Account.Type.EXPENSE,
         date_from=date_from,
         date_to=date_to,
+        show=show,
     )
-    net_profit = revenue_total - expense_total
+    net_profit = revenue["total"] - expenses["total"]
     return render(request, "accounting/income_statement.html", {
-        "revenue_rows": revenue_rows,
-        "revenue_total": _money(revenue_total),
-        "expense_rows": expense_rows,
-        "expense_total": _money(expense_total),
+        "revenue_sections": revenue["sections"],
+        "revenue_total": _money(revenue["total"]),
+        "expense_sections": expenses["sections"],
+        "expense_total": _money(expenses["total"]),
         "net_profit": _money(net_profit),
+        "net_profit_class": "negative" if net_profit < 0 else "positive",
+        "active_account_count": revenue["active_count"] + expenses["active_count"],
+        "detail_account_count": revenue["detail_count"] + expenses["detail_count"],
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
+        "show": show,
     })
 
 
 @require_perm("accounting.view_account")
 def balance_sheet(request):
     as_of = parse_date(request.GET.get("to") or "") or timezone.localdate()
-    asset_rows, asset_total = _by_type(Account.Type.ASSET, date_to=as_of)
-    liability_rows, liability_total = _by_type(Account.Type.LIABILITY, date_to=as_of)
-    equity_rows, equity_total = _by_type(Account.Type.EQUITY, date_to=as_of)
-    _, revenue_total = _by_type(Account.Type.REVENUE, date_to=as_of)
-    _, expense_total = _by_type(Account.Type.EXPENSE, date_to=as_of)
-    net_profit = revenue_total - expense_total
-    total_liabilities_equity = liability_total + equity_total + net_profit
-    difference = asset_total - total_liabilities_equity
+    show = request.GET.get("show") or "nonzero"
+    if show not in ("nonzero", "all"):
+        show = "nonzero"
+    assets = _statement_tree(Account.Type.ASSET, date_to=as_of, show=show)
+    liabilities = _statement_tree(Account.Type.LIABILITY, date_to=as_of, show=show)
+    equity = _statement_tree(Account.Type.EQUITY, date_to=as_of, show=show)
+    revenue = _statement_tree(Account.Type.REVENUE, date_to=as_of)
+    expenses = _statement_tree(Account.Type.EXPENSE, date_to=as_of)
+    net_profit = revenue["total"] - expenses["total"]
+    total_liabilities_equity = liabilities["total"] + equity["total"] + net_profit
+    difference = assets["total"] - total_liabilities_equity
+    trial_debit, trial_credit = _trial_balance_closing_control(as_of)
+    trial_difference = trial_debit - trial_credit
     return render(request, "accounting/balance_sheet.html", {
-        "asset_rows": asset_rows,
-        "asset_total": _money(asset_total),
-        "liability_rows": liability_rows,
-        "equity_rows": equity_rows,
+        "asset_sections": assets["sections"],
+        "asset_total": _money(assets["total"]),
+        "liability_sections": liabilities["sections"],
+        "liability_total": _money(liabilities["total"]),
+        "equity_sections": equity["sections"],
+        "equity_total": _money(equity["total"]),
         "net_profit": _money(net_profit),
+        "net_profit_class": "negative" if net_profit < 0 else "positive",
         "total_liab_equity_profit": _money(total_liabilities_equity),
         "difference": _money(abs(difference)),
-        "is_balanced": difference == 0,
+        "is_balanced": difference == 0 and trial_difference == 0,
+        "trial_balance_debit": _money(trial_debit),
+        "trial_balance_credit": _money(trial_credit),
+        "trial_balance_difference": _money(abs(trial_difference)),
+        "is_trial_balanced": trial_difference == 0,
+        "active_account_count": (
+            assets["active_count"]
+            + liabilities["active_count"]
+            + equity["active_count"]
+        ),
+        "detail_account_count": (
+            assets["detail_count"]
+            + liabilities["detail_count"]
+            + equity["detail_count"]
+        ),
         "as_of": as_of.isoformat(),
+        "show": show,
     })
 
 

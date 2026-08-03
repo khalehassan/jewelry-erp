@@ -701,6 +701,123 @@ class ReportConsistencyTests(TestCase):
         self.assertEqual(current_balance_sheet.context["total_liab_equity_profit"], "300.00")
         self.assertTrue(current_balance_sheet.context["is_balanced"])
 
+    def test_statements_roll_up_the_trial_balance_account_hierarchy(self):
+        create_entry(date(2026, 3, 1), "Gold sales", [
+            ("1011", Decimal("1000.00"), Decimal("0.00")),
+            ("4011", Decimal("0.00"), Decimal("1000.00")),
+        ])
+        create_entry(date(2026, 3, 2), "Sales discount", [
+            ("4194", Decimal("100.00"), Decimal("0.00")),
+            ("1011", Decimal("0.00"), Decimal("100.00")),
+        ])
+        create_entry(date(2026, 3, 3), "Cost of gold sold", [
+            ("5011", Decimal("400.00"), Decimal("0.00")),
+            ("1221", Decimal("0.00"), Decimal("400.00")),
+        ])
+        create_entry(date(2026, 3, 4), "Bank charge", [
+            ("6390", Decimal("50.00"), Decimal("0.00")),
+            ("1011", Decimal("0.00"), Decimal("50.00")),
+        ])
+
+        period = {"from": "2026-03-01", "to": "2026-03-31"}
+        income = self.client.get(reverse("accounting:income_statement"), period)
+        trial = self.client.get(
+            reverse("accounting:trial_balance"),
+            {**period, "show": "all"},
+        )
+
+        self.assertEqual(income.context["revenue_total"], "900.00")
+        self.assertEqual(income.context["expense_total"], "450.00")
+        self.assertEqual(income.context["net_profit"], "450.00")
+        self.assertEqual(income.context["active_account_count"], 4)
+
+        revenue_sections = {
+            section["account"].code: section
+            for section in income.context["revenue_sections"]
+        }
+        self.assertEqual(revenue_sections["4000"]["balance"], "900.00")
+        revenue_codes = {
+            row["account"].code for row in revenue_sections["4000"]["rows"]
+        }
+        self.assertTrue({"4010", "4011", "4190", "4194"}.issubset(revenue_codes))
+
+        expense_sections = {
+            section["account"].code: section
+            for section in income.context["expense_sections"]
+        }
+        self.assertEqual(expense_sections["5000"]["balance"], "400.00")
+        self.assertEqual(expense_sections["6300"]["balance"], "50.00")
+
+        trial_rows = {
+            row["account"].code: row for row in trial.context["rows"]
+        }
+        self.assertEqual(trial_rows["4000"]["closing_credit"], "900.00")
+        self.assertEqual(trial_rows["5000"]["closing_debit"], "400.00")
+        self.assertEqual(trial_rows["6300"]["closing_debit"], "50.00")
+
+        balance_sheet = self.client.get(
+            reverse("accounting:balance_sheet"),
+            {"to": "2026-03-31"},
+        )
+        self.assertEqual(balance_sheet.context["asset_total"], "450.00")
+        self.assertEqual(balance_sheet.context["net_profit"], "450.00")
+        self.assertEqual(
+            balance_sheet.context["total_liab_equity_profit"],
+            "450.00",
+        )
+        self.assertEqual(balance_sheet.context["trial_balance_difference"], "0.00")
+        self.assertTrue(balance_sheet.context["is_trial_balanced"])
+        self.assertTrue(balance_sheet.context["is_balanced"])
+
+        asset_sections = {
+            section["account"].code: section
+            for section in balance_sheet.context["asset_sections"]
+        }
+        self.assertEqual(asset_sections["1000"]["balance"], "850.00")
+        self.assertEqual(asset_sections["1200"]["balance"], "-400.00")
+
+    def test_statements_can_show_every_opened_trial_balance_account(self):
+        income = self.client.get(reverse("accounting:income_statement"), {
+            "from": "2026-01-01",
+            "to": "2026-12-31",
+            "show": "all",
+        })
+        balance_sheet = self.client.get(reverse("accounting:balance_sheet"), {
+            "to": "2026-12-31",
+            "show": "all",
+        })
+
+        revenue_roots = {
+            section["account"].code
+            for section in income.context["revenue_sections"]
+        }
+        expense_roots = {
+            section["account"].code
+            for section in income.context["expense_sections"]
+        }
+        asset_roots = {
+            section["account"].code
+            for section in balance_sheet.context["asset_sections"]
+        }
+        liability_roots = {
+            section["account"].code
+            for section in balance_sheet.context["liability_sections"]
+        }
+        equity_roots = {
+            section["account"].code
+            for section in balance_sheet.context["equity_sections"]
+        }
+
+        self.assertTrue({"4000", "7000"}.issubset(revenue_roots))
+        self.assertTrue({"5000", "6000", "6300", "7500"}.issubset(expense_roots))
+        self.assertTrue({"1000", "1200", "1500", "1600"}.issubset(asset_roots))
+        self.assertTrue({"2000", "2200"}.issubset(liability_roots))
+        self.assertIn("3000", equity_roots)
+        self.assertGreater(income.context["detail_account_count"], 0)
+        self.assertGreater(balance_sheet.context["detail_account_count"], 0)
+        self.assertContains(income, "All opened Trial Balance accounts")
+        self.assertContains(balance_sheet, "All opened Trial Balance accounts")
+
     def test_operational_reports_exclude_unposted_activity_and_show_differences(self):
         posted = Purchase.objects.create()
         PurchaseLine.objects.create(
