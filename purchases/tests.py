@@ -305,6 +305,64 @@ class SupplierDuplicateTests(TestCase):
 
 
 class PurchaseAmountValidationTests(TestCase):
+    def _posted_purchase_with_payment_method(self, payment_method, *, on_credit=False):
+        supplier = Supplier.objects.create(
+            name=f"{payment_method} method supplier {Supplier.objects.count()}",
+        )
+        purchase = Purchase.objects.create(
+            supplier=supplier,
+            on_credit=on_credit,
+            payment_method=payment_method,
+        )
+        PurchaseLine.objects.create(
+            purchase=purchase,
+            name=f"{payment_method} payment ring",
+            karat=21,
+            weight_grams=Decimal("2.000"),
+            raw_gold_price_per_gram=Decimal("500.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
+            quantity=1,
+        )
+        purchase.post_to_ledger()
+        purchase.refresh_from_db()
+        return purchase
+
+    def test_each_immediate_payment_method_posts_to_its_own_account(self):
+        expected_accounts = {
+            Purchase.PaymentMethod.CASH: "1011",
+            Purchase.PaymentMethod.BANK: "1021",
+            Purchase.PaymentMethod.OTHER: "1025",
+        }
+
+        for payment_method, account_code in expected_accounts.items():
+            with self.subTest(payment_method=payment_method):
+                purchase = self._posted_purchase_with_payment_method(payment_method)
+                credit_lines = purchase.journal_entry.lines.filter(credit__gt=0)
+                self.assertEqual(credit_lines.count(), 1)
+                self.assertEqual(credit_lines.get().account.code, account_code)
+                self.assertIn(
+                    purchase.get_payment_method_display(),
+                    purchase.journal_entry.description,
+                )
+
+    def test_credit_purchase_posts_to_supplier_payable_regardless_of_method(self):
+        purchase = self._posted_purchase_with_payment_method(
+            Purchase.PaymentMethod.BANK,
+            on_credit=True,
+        )
+
+        credit_line = purchase.journal_entry.lines.get(credit__gt=0)
+        self.assertEqual(credit_line.account.code, "2011")
+        self.assertIn("On credit", purchase.journal_entry.description)
+
+    def test_database_rejects_unknown_purchase_payment_method(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Purchase.objects.bulk_create([
+                    Purchase(payment_method="uncontrolled-method"),
+                ])
+
     def test_model_rejects_zero_and_negative_purchase_values(self):
         invalid_values = [
             {"weight_grams": Decimal("0.000")},
@@ -432,12 +490,17 @@ class PurchaseAmountValidationTests(TestCase):
         self.client.force_login(user)
 
         page = self.client.get(reverse("purchases:new_purchase"))
+        self.assertContains(page, 'name="payment_method"')
+        self.assertContains(page, '<option value="cash">Cash</option>', html=True)
+        self.assertContains(page, '<option value="bank">Bank</option>', html=True)
+        self.assertContains(page, '<option value="other">Other</option>', html=True)
         self.assertContains(page, 'name="raw_gold_price"')
         self.assertContains(page, 'name="craftsmanship"')
         self.assertContains(page, 'name="stamp"')
         self.assertNotContains(page, 'name="cost"')
 
         response = self.client.post(reverse("purchases:new_purchase"), {
+            "payment_method": "bank",
             "barcode": ["COST-001"],
             "name": ["Costed ring"],
             "category": ["ring"],
@@ -460,6 +523,39 @@ class PurchaseAmountValidationTests(TestCase):
         self.assertEqual(line.line_total, Decimal("25700.00"))
         self.assertEqual(line.created_item.cost_price, Decimal("12850.00"))
         self.assertIsNotNone(line.purchase.journal_entry_id)
+        self.assertEqual(line.purchase.payment_method, Purchase.PaymentMethod.BANK)
+        self.assertEqual(
+            line.purchase.journal_entry.lines.get(credit__gt=0).account.code,
+            "1021",
+        )
+
+    def test_purchase_page_rejects_unknown_payment_method(self):
+        user = get_user_model().objects.create_user("payment-method-user", password="test")
+        user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="purchases",
+            codename="add_purchase",
+        ))
+        self.client.force_login(user)
+
+        response = self.client.post(reverse("purchases:new_purchase"), {
+            "payment_method": "crypto",
+            "barcode": ["METHOD-001"],
+            "name": ["Controlled payment ring"],
+            "category": ["ring"],
+            "karat": ["21"],
+            "weight": ["2.000"],
+            "stone": [""],
+            "location": ["safe"],
+            "raw_gold_price": ["500.00"],
+            "craftsmanship": ["0.00"],
+            "stamp": ["0.00"],
+            "qty": ["1"],
+        }, follow=True)
+
+        self.assertContains(response, "Choose a valid payment method")
+        self.assertEqual(Purchase.objects.count(), 0)
+        self.assertEqual(PurchaseLine.objects.count(), 0)
+        self.assertEqual(JewelryItem.objects.count(), 0)
 
 
 class PurchaseInventoryDeletionTests(TransactionTestCase):

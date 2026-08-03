@@ -509,6 +509,8 @@ def gold_movement(request):
             "purchase__created_at",
             "purchase__journal_entry__date",
             "purchase__is_opening",
+            "purchase__on_credit",
+            "purchase__payment_method",
             "purchase__supplier__name",
             "karat",
         )
@@ -517,6 +519,17 @@ def gold_movement(request):
     )
     for result in period_purchase_rows:
         is_opening = result["purchase__is_opening"]
+        supplier = result["purchase__supplier__name"] or ""
+        if result["purchase__on_credit"]:
+            payment_method = "On credit"
+        else:
+            payment_method = dict(Purchase.PaymentMethod.choices).get(
+                result["purchase__payment_method"],
+                "Other",
+            )
+        details = " · ".join(
+            value for value in (supplier, payment_method) if value
+        )
         events.append({
             "occurred_at": result["purchase__created_at"],
             "ledger_date": result["purchase__journal_entry__date"],
@@ -528,7 +541,7 @@ def gold_movement(request):
                 f"Opening stock #{result['purchase_id']}"
                 if is_opening else f"Purchase #{result['purchase_id']}"
             ),
-            "party": result["purchase__supplier__name"] or "",
+            "party": "" if is_opening else details,
             "karat": result["karat"],
             "received_raw": result["weight"] or zero,
             "out_raw": zero,

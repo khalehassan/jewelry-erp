@@ -56,10 +56,12 @@ class PurchaseAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     change_form_template = "admin/purchases/purchase/change_form.html"
     inlines = [PurchaseLineInline]
     list_display = (
-        "id", "status", "supplier", "is_opening", "on_credit", "created_at",
-        "total_display",
+        "id", "status", "supplier", "payment_method_display", "is_opening",
+        "on_credit", "created_at", "total_display",
     )
-    list_filter = ("status", "supplier", "on_credit", "is_opening")
+    list_filter = (
+        "status", "payment_method", "supplier", "on_credit", "is_opening",
+    )
     readonly_fields = (
         "status", "total_display", "created_at", "journal_entry",
         "reversal_journal_entry", "reversed_at", "reversed_by",
@@ -143,6 +145,14 @@ class PurchaseAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
         if obj is not None and obj.journal_entry_id:
             return False
         return super().has_change_permission(request, obj)
+
+    @admin.display(description="Payment method", ordering="payment_method")
+    def payment_method_display(self, obj):
+        if obj.is_opening:
+            return "Opening balance"
+        if obj.on_credit:
+            return "On credit"
+        return obj.get_payment_method_display()
 
     @admin.display(description="Total (EGP)")
     def total_display(self, obj):

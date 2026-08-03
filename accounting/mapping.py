@@ -7,6 +7,7 @@ number — when the chart of accounts changes, this is the only file to edit.
 # --- money ---------------------------------------------------------------
 CASH = "1011"                    # Cash on Hand
 BANK = "1021"                    # Current Bank Account
+OTHER_PAYMENT = "1025"           # Other Payment Account
 CARD_RECEIVABLE = "1031"         # POS Card Receivables (awaiting settlement)
 
 # --- customers and suppliers --------------------------------------------

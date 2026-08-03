@@ -52,6 +52,7 @@ def new_supplier(request):
 @require_perm("purchases.add_purchase")
 def new_purchase(request):
     if request.method == "POST":
+        payment_method = (request.POST.get("payment_method") or "").strip()
         barcodes = request.POST.getlist("barcode")
         names = request.POST.getlist("name")
         categories = request.POST.getlist("category")
@@ -66,6 +67,8 @@ def new_purchase(request):
 
         lines = []
         errors = []
+        if payment_method not in Purchase.PaymentMethod.values:
+            errors.append("Choose a valid payment method: Cash, Bank, or Other.")
         for row_number, values in enumerate(zip_longest(
             barcodes, names, categories, karats, weights, stones, locations,
             raw_gold_prices, craftsmanship_rates, stamp_charges, qtys,
@@ -123,7 +126,7 @@ def new_purchase(request):
                 "quantity": parsed_quantity,
             })
 
-        if not lines and not errors:
+        if not lines:
             errors.append("A purchase must contain at least one item.")
         if errors:
             for error in errors:
@@ -135,6 +138,7 @@ def new_purchase(request):
                 purchase = Purchase.objects.create(
                     supplier_id=request.POST.get("supplier") or None,
                     on_credit=bool(request.POST.get("on_credit")),
+                    payment_method=payment_method,
                 )
                 for line in lines:
                     PurchaseLine.objects.create(purchase=purchase, **line)
@@ -154,4 +158,5 @@ def new_purchase(request):
         "categories": JewelryItem.Category.choices,
         "karats": JewelryItem.Karat.choices,
         "locations": JewelryItem.Location.choices,
+        "payment_methods": Purchase.PaymentMethod.choices,
     })

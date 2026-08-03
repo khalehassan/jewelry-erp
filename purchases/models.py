@@ -59,8 +59,19 @@ class Purchase(models.Model):
         POSTED = "posted", "Posted"
         REVERSED = "reversed", "Reversed"
 
+    class PaymentMethod(models.TextChoices):
+        CASH = "cash", "Cash"
+        BANK = "bank", "Bank"
+        OTHER = "other", "Other"
+
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="purchases")
     on_credit = models.BooleanField(default=False, help_text="Bought on credit (you owe the supplier)")
+    payment_method = models.CharField(
+        max_length=10,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.CASH,
+        help_text="Used for purchases paid immediately; credit purchases post to Supplier Payable.",
+    )
     is_opening = models.BooleanField(default=False, help_text="Stock you already owned, brought onto the books (e.g. a CSV import)")
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
@@ -86,6 +97,10 @@ class Purchase(models.Model):
 
     class Meta:
         constraints = [
+            models.CheckConstraint(
+                condition=models.Q(payment_method__in=("cash", "bank", "other")),
+                name="purchase_payment_method_valid",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(
@@ -122,7 +137,12 @@ class Purchase(models.Model):
     def __str__(self):
         if self.is_opening:
             return f"Opening stock #{self.pk}"
-        who = self.supplier.name if self.supplier else "Cash purchase"
+        if self.supplier:
+            who = self.supplier.name
+        elif self.on_credit:
+            who = "Credit purchase"
+        else:
+            who = f"{self.get_payment_method_display()} purchase"
         return f"Purchase #{self.pk} — {who}"
 
     def save(self, *args, **kwargs):
@@ -162,8 +182,18 @@ class Purchase(models.Model):
             credit_account = mapping.OPENING_BALANCE_EQUITY
             description = f"Opening stock #{self.pk}"
         else:
-            credit_account = mapping.SUPPLIER_PAYABLE if self.on_credit else mapping.CASH
-            description = f"Purchase #{self.pk}"
+            payment_accounts = {
+                self.PaymentMethod.CASH: mapping.CASH,
+                self.PaymentMethod.BANK: mapping.BANK,
+                self.PaymentMethod.OTHER: mapping.OTHER_PAYMENT,
+            }
+            if self.on_credit:
+                credit_account = mapping.SUPPLIER_PAYABLE
+                payment_label = "On credit"
+            else:
+                credit_account = payment_accounts[self.payment_method]
+                payment_label = self.get_payment_method_display()
+            description = f"Purchase #{self.pk} ({payment_label})"
 
         lines = [(code, amount, Decimal("0.00")) for code, amount in inventory_by.items()]
         lines.append((credit_account, Decimal("0.00"), self.total))

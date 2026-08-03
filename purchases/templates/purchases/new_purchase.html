@@ -37,6 +37,16 @@
     <p class="sub" style="margin:6px 0 0;"><a href="{% url 'purchases:new_supplier' %}">+ Add a new supplier</a></p>
     {% endif %}
 
+    <label for="payment_method">Payment method</label>
+    <select id="payment_method" name="payment_method" required>
+        {% for value, label in payment_methods %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+    </select>
+    <p class="sub" style="margin:6px 0 14px;">
+        Used when paid immediately. Purchases marked on credit post to Supplier Payable.
+    </p>
+
     <div class="scroll">
         <table class="linetable">
             <thead>
