@@ -496,7 +496,10 @@ class PurchaseInventoryDeletionTests(TransactionTestCase):
 
         sale = self._sale_one(item)
         sale_entry = JournalEntry.objects.create(description="Sale test")
-        Sale.objects.filter(pk=sale.pk).update(journal_entry=sale_entry)
+        Sale.objects.filter(pk=sale.pk).update(
+            journal_entry=sale_entry,
+            status=Sale.Status.POSTED,
+        )
 
         JournalEntry.objects.filter(pk__in=[purchase_entry.pk, sale_entry.pk]).delete()
 

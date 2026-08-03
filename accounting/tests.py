@@ -194,6 +194,49 @@ class GoldMovementReportTests(TestCase):
         self.assertEqual(rows[1]["balance"], "0.000")
         self.assertTrue(response.context["is_reconciled"])
 
+    def test_sale_reversal_is_an_incoming_transaction_and_reconciles(self):
+        purchase = Purchase.objects.create()
+        purchase_line = PurchaseLine.objects.create(
+            purchase=purchase,
+            name="Sale reversal stock",
+            karat=21,
+            weight_grams=Decimal("2.000"),
+            raw_gold_price_per_gram=Decimal("1000.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
+            quantity=1,
+        )
+        purchase.post_to_ledger()
+        sale = Sale.objects.create()
+        SaleLine.objects.create(
+            sale=sale,
+            item=purchase_line.created_item,
+            gold_price_per_gram=Decimal("1500.00"),
+            making_charge_per_gram=Decimal("0.00"),
+            quantity=1,
+        )
+        sale.post_to_ledger()
+        sale.reverse(user=self.user, reason="Duplicate sale")
+
+        today = timezone.localdate().isoformat()
+        response = self.client.get(reverse("accounting:gold_movement"), {
+            "from": today,
+            "to": today,
+        })
+
+        rows = response.context["rows"]
+        self.assertEqual([row["kind"] for row in rows], [
+            "Purchase",
+            "Sale",
+            "Sale reversal",
+        ])
+        self.assertEqual(rows[0]["balance"], "2.000")
+        self.assertEqual(rows[1]["out"], "2.000")
+        self.assertEqual(rows[1]["balance"], "0.000")
+        self.assertEqual(rows[2]["received"], "2.000")
+        self.assertEqual(rows[2]["balance"], "2.000")
+        self.assertTrue(response.context["is_reconciled"])
+
     def test_filtered_ledger_carries_forward_opening_balance(self):
         opening = Purchase.objects.create(is_opening=True)
         PurchaseLine.objects.create(

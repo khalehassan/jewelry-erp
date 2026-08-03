@@ -1,6 +1,11 @@
 from django import forms
 from django.contrib import admin
-from django.core.exceptions import ValidationError
+from django.contrib import messages
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import Http404
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from django.utils.html import format_html
 
 from config.admin_controls import ProtectedFromAdminDeletionMixin
@@ -59,10 +64,86 @@ class SaleLineInline(admin.TabularInline):
 
 @admin.register(Sale)
 class SaleAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
+    change_form_template = "admin/sales/sale/change_form.html"
     inlines = [SaleLineInline]
-    list_display = ("id", "customer", "on_credit", "created_at", "total_display", "receipt_link")
-    list_filter = ("customer", "on_credit")
-    readonly_fields = ("subtotal_display", "total_display", "created_at", "journal_entry")
+    list_display = (
+        "id", "status", "customer", "on_credit", "created_at", "total_display",
+        "receipt_link",
+    )
+    list_filter = ("status", "customer", "on_credit")
+    readonly_fields = (
+        "status", "subtotal_display", "total_display", "created_at",
+        "journal_entry", "reversal_journal_entry", "reversed_at", "reversed_by",
+        "reversal_reason",
+    )
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<path:object_id>/reverse/",
+                self.admin_site.admin_view(self.reverse_sale_view),
+                name="sales_sale_reverse",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = dict(extra_context or {})
+        sale = self.get_object(request, object_id) if object_id else None
+        extra_context["show_reverse_button"] = bool(
+            sale
+            and sale.status == Sale.Status.POSTED
+            and request.user.has_perm("sales.change_sale")
+        )
+        if sale:
+            extra_context["reverse_sale_url"] = reverse(
+                "admin:sales_sale_reverse",
+                args=[sale.pk],
+            )
+        return super().changeform_view(
+            request,
+            object_id,
+            form_url,
+            extra_context=extra_context,
+        )
+
+    def reverse_sale_view(self, request, object_id):
+        if not request.user.has_perm("sales.change_sale"):
+            raise PermissionDenied
+        sale = self.get_object(request, object_id)
+        if sale is None:
+            raise Http404("Sale does not exist")
+
+        error_message = ""
+        reason = (request.POST.get("reason") or "").strip()
+        if request.method == "POST":
+            try:
+                sale.reverse(user=request.user, reason=reason)
+            except ValidationError as error:
+                error_message = " ".join(error.messages)
+            else:
+                self.message_user(
+                    request,
+                    f"Sale #{sale.pk} was reversed. Inventory and ledger were updated.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:sales_sale_change", sale.pk)
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Reverse Sale #{sale.pk}",
+            "opts": self.model._meta,
+            "original": sale,
+            "sale": sale,
+            "reason": reason,
+            "error_message": error_message,
+            "change_url": reverse("admin:sales_sale_change", args=[sale.pk]),
+        }
+        return TemplateResponse(
+            request,
+            "admin/sales/sale/reverse_confirmation.html",
+            context,
+        )
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)

@@ -16,6 +16,7 @@
     .receipt .totals .grand { font-size:20px; font-weight:800; border-top:2px solid var(--line); padding-top:10px; margin-top:6px; }
     .receipt .thanks { text-align:center; color:var(--muted); font-size:13px; margin-top:22px; }
     .actions { text-align:center; margin-top:22px; display:flex; gap:10px; justify-content:center; }
+    .reversed-banner { background:#fbe9e7; border:2px solid #b13a32; color:#a9342d; font-size:18px; font-weight:900; margin-bottom:18px; padding:10px; text-align:center; text-transform:uppercase; }
     @media print {
         .topbar, .actions, .msg { display:none !important; }
         body { background:#fff; color:#000; }
@@ -28,6 +29,14 @@
 
 {% block content %}
 <div class="card receipt">
+    {% if sale.status == "reversed" %}
+    <div class="reversed-banner">
+        Reversed sale — not a valid receipt
+        <div style="font-size:12px; font-weight:600; margin-top:4px; text-transform:none;">
+            {{ sale.reversed_at|date:"Y-m-d H:i" }} · {{ sale.reversal_reason }}
+        </div>
+    </div>
+    {% endif %}
     <div class="shop">
         <h2>Jewelry Store</h2>
         <div class="sub">Sales Receipt</div>

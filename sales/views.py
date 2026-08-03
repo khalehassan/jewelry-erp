@@ -168,7 +168,10 @@ def receipt(request, pk):
 @login_required
 def dashboard(request):
     today = timezone.localdate()
-    todays_sales = Sale.objects.filter(created_at__date=today)
+    todays_sales = Sale.objects.filter(
+        created_at__date=today,
+        status=Sale.Status.POSTED,
+    )
     todays_count = todays_sales.count()
     todays_revenue = sum((s.total for s in todays_sales), Decimal("0.00"))
 
@@ -183,13 +186,16 @@ def dashboard(request):
         stock_value += item.cost_price * item.quantity
 
     sold = {}
-    for line in SaleLine.objects.all():
+    for line in SaleLine.objects.filter(sale__status=Sale.Status.POSTED):
         sold[line.item.name] = sold.get(line.item.name, 0) + line.quantity
     best_sellers = sorted(sold.items(), key=lambda pair: pair[1], reverse=True)[:5]
 
     customer_spend = []
     for c in Customer.objects.all():
-        spent = sum((s.total for s in c.sales.all()), Decimal("0.00"))
+        spent = sum(
+            (s.total for s in c.sales.filter(status=Sale.Status.POSTED)),
+            Decimal("0.00"),
+        )
         if spent > 0:
             customer_spend.append((c.name, spent))
     customer_spend.sort(key=lambda pair: pair[1], reverse=True)

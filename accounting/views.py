@@ -107,13 +107,17 @@ def _operational_reconciliation(as_of):
         zero,
     )
 
+    active_credit_sales = Sale.objects.filter(
+        on_credit=True,
+        journal_entry__date__lte=as_of,
+    ).filter(
+        Q(reversal_journal_entry__isnull=True)
+        | Q(reversal_journal_entry__date__gt=as_of)
+    )
     credit_sales = sum(
         (
             _round_money(sale.total)
-            for sale in Sale.objects.filter(
-                on_credit=True,
-                journal_entry__date__lte=as_of,
-            )
+            for sale in active_credit_sales
         ),
         zero,
     )
@@ -479,6 +483,18 @@ def gold_movement(request):
         if karat in karats:
             opening_balances[karat] -= result["weight"] or zero
 
+    opening_sale_reversal_rows = (
+        SaleLine.objects
+        .filter(sale__reversal_journal_entry__date__lt=date_from)
+        .values("item__karat")
+        .annotate(weight=Sum(sale_weight))
+        .order_by()
+    )
+    for result in opening_sale_reversal_rows:
+        karat = result["item__karat"]
+        if karat in karats:
+            opening_balances[karat] += result["weight"] or zero
+
     # One row per business transaction and karat. Multiple jewelry items of the
     # same karat on one purchase or sale are deliberately combined.
     events = []
@@ -573,6 +589,38 @@ def gold_movement(request):
             "karat": result["karat"],
             "received_raw": zero,
             "out_raw": result["weight"] or zero,
+        })
+
+    period_sale_reversal_rows = (
+        SaleLine.objects
+        .filter(sale__reversal_journal_entry__date__range=(date_from, date_to))
+        .values(
+            "sale_id",
+            "sale__reversed_at",
+            "sale__reversal_journal_entry__date",
+            "sale__customer__name",
+            "sale__reversal_reason",
+            "item__karat",
+        )
+        .annotate(weight=Sum(sale_weight))
+        .order_by()
+    )
+    for result in period_sale_reversal_rows:
+        customer = result["sale__customer__name"] or "Walk-in customer"
+        reason = result["sale__reversal_reason"]
+        details = " · ".join(value for value in (customer, reason) if value)
+        events.append({
+            "occurred_at": result["sale__reversed_at"],
+            "ledger_date": result["sale__reversal_journal_entry__date"],
+            "sort_order": 3,
+            "source_id": result["sale_id"],
+            "kind": "Sale reversal",
+            "kind_class": "sale-reversal",
+            "reference": f"Reversal of Sale #{result['sale_id']}",
+            "party": details,
+            "karat": result["item__karat"],
+            "received_raw": result["weight"] or zero,
+            "out_raw": zero,
         })
 
     events.sort(key=lambda event: (

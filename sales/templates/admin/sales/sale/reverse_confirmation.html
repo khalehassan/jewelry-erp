@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; <a href="{{ change_url }}">{{ original }}</a>
+    &rsaquo; Reverse
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Reverse Sale #{{ sale.pk }}</h1>
+
+    <p>
+        This keeps the original sale as a permanent audit record, creates an
+        opposite journal entry, and returns the sold quantities to inventory.
+    </p>
+    <p>
+        A credit sale cannot be reversed after a customer receipt has been applied.
+    </p>
+
+    {% if error_message %}
+        <ul class="errorlist"><li>{{ error_message }}</li></ul>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            <div class="form-row">
+                <div>
+                    <label class="required" for="id_reason">Reversal reason:</label>
+                    <textarea
+                        id="id_reason"
+                        name="reason"
+                        rows="4"
+                        cols="70"
+                        required
+                        placeholder="Explain why this sale is being reversed"
+                    >{{ reason }}</textarea>
+                </div>
+            </div>
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Confirm reversal" class="deletelink">
+            <a href="{{ change_url }}" class="button cancel-link">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

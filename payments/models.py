@@ -59,7 +59,13 @@ class Payment(models.Model):
     def customer_balance(cls, customer, exclude_payment_id=None):
         """Return credit sales, receipts, and the customer's unpaid balance."""
         billed = sum(
-            (sale.total for sale in customer.sales.filter(on_credit=True)),
+            (
+                sale.total
+                for sale in customer.sales.filter(
+                    on_credit=True,
+                    status="posted",
+                )
+            ),
             Decimal("0.00"),
         )
         receipts = customer.payments.filter(kind=cls.Kind.RECEIVE)
