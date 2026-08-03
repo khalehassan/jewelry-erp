@@ -76,10 +76,10 @@ class SaleAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
     change_form_template = "admin/sales/sale/change_form.html"
     inlines = [SaleLineInline]
     list_display = (
-        "id", "status", "customer", "on_credit", "created_at", "total_display",
-        "receipt_link",
+        "id", "status", "customer", "payment_method_display", "on_credit",
+        "created_at", "total_display", "receipt_link",
     )
-    list_filter = ("status", "customer", "on_credit")
+    list_filter = ("status", "payment_method", "customer", "on_credit")
     readonly_fields = (
         "status", "subtotal_display", "total_display", "created_at",
         "journal_entry", "reversal_journal_entry", "reversed_at", "reversed_by",
@@ -163,6 +163,12 @@ class SaleAdmin(ProtectedFromAdminDeletionMixin, admin.ModelAdmin):
         if obj is not None and obj.journal_entry_id:
             return False
         return super().has_change_permission(request, obj)
+
+    @admin.display(description="Payment method", ordering="payment_method")
+    def payment_method_display(self, obj):
+        if obj.on_credit:
+            return "On credit"
+        return obj.get_payment_method_display()
 
     @admin.display(description="Receipt")
     def receipt_link(self, obj):

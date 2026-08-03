@@ -48,7 +48,13 @@
     </div>
     <div class="meta">
         <div>Customer: {% if sale.customer %}{{ sale.customer.name }}{% else %}Walk-in{% endif %}</div>
-        <div>{% if sale.on_credit %}On credit{% else %}Paid{% endif %}</div>
+        <div>
+            {% if sale.on_credit %}
+                On credit
+            {% else %}
+                Paid by {{ sale.get_payment_method_display }}
+            {% endif %}
+        </div>
     </div>
 
     <table>

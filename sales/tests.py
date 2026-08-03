@@ -181,6 +181,72 @@ class SaleReversalTests(TestCase):
                 Sale.objects.filter(pk=sale.pk).update(status=Sale.Status.REVERSED)
 
 
+class SalePaymentMethodTests(TestCase):
+    def _posted_sale(self, payment_method, *, on_credit=False):
+        item = JewelryItem.objects.create(
+            name=f"{payment_method} payment item {JewelryItem.objects.count()}",
+            category=JewelryItem.Category.RING,
+            karat=JewelryItem.Karat.K21,
+            weight_grams=Decimal("1.000"),
+            location=JewelryItem.Location.SHOWCASE,
+            cost_price=Decimal("400.00"),
+            quantity=1,
+        )
+        customer = None
+        if on_credit:
+            customer = Customer.objects.create(
+                name=f"Credit payment customer {Customer.objects.count()}",
+            )
+        sale = Sale.objects.create(
+            customer=customer,
+            on_credit=on_credit,
+            payment_method=payment_method,
+        )
+        SaleLine.objects.create(
+            sale=sale,
+            item=item,
+            gold_price_per_gram=Decimal("1000.00"),
+            making_charge_per_gram=Decimal("0.00"),
+            quantity=1,
+        )
+        sale.post_to_ledger()
+        sale.refresh_from_db()
+        return sale
+
+    def test_each_immediate_payment_method_posts_to_its_own_account(self):
+        expected_accounts = {
+            Sale.PaymentMethod.CASH: "1011",
+            Sale.PaymentMethod.BANK: "1021",
+            Sale.PaymentMethod.OTHER: "1025",
+        }
+
+        for payment_method, account_code in expected_accounts.items():
+            with self.subTest(payment_method=payment_method):
+                sale = self._posted_sale(payment_method)
+                money_line = sale.journal_entry.lines.get(account__code=account_code)
+                self.assertEqual(money_line.debit, sale.total)
+                self.assertEqual(money_line.credit, Decimal("0.00"))
+                self.assertIn(
+                    sale.get_payment_method_display(),
+                    sale.journal_entry.description,
+                )
+
+    def test_credit_sale_posts_to_receivables_regardless_of_method(self):
+        sale = self._posted_sale(Sale.PaymentMethod.BANK, on_credit=True)
+
+        receivable = sale.journal_entry.lines.get(account__code="1041")
+        self.assertEqual(receivable.debit, sale.total)
+        self.assertEqual(receivable.credit, Decimal("0.00"))
+        self.assertIn("On credit", sale.journal_entry.description)
+
+    def test_database_rejects_unknown_sale_payment_method(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Sale.objects.bulk_create([
+                    Sale(payment_method="uncontrolled-method"),
+                ])
+
+
 class SaleValidationTests(TestCase):
     def setUp(self):
         self.item = JewelryItem.objects.create(
@@ -309,6 +375,7 @@ class SalePageValidationTests(TestCase):
 
     def _post(self, **overrides):
         values = {
+            "payment_method": "cash",
             "item": [str(self.item.pk)],
             "gold": ["1000.00"],
             "making": ["0.00"],
@@ -342,7 +409,14 @@ class SalePageValidationTests(TestCase):
         self.assert_nothing_was_sold()
 
     def test_valid_sale_reserves_stock_and_posts_one_ledger_entry(self):
+        page = self.client.get(reverse("sales:new_sale"))
+        self.assertContains(page, 'name="payment_method"')
+        self.assertContains(page, '<option value="cash">Cash</option>', html=True)
+        self.assertContains(page, '<option value="bank">Bank</option>', html=True)
+        self.assertContains(page, '<option value="other">Other</option>', html=True)
+
         response = self._post(
+            payment_method="bank",
             gold=["1000.00"],
             making=["100.00"],
             qty=["2"],
@@ -354,8 +428,18 @@ class SalePageValidationTests(TestCase):
         self.assertIsNotNone(sale.journal_entry_id)
         self.assertEqual(sale.lines.count(), 1)
         self.assertEqual(sale.total, Decimal("2100.00000"))
+        self.assertEqual(sale.payment_method, Sale.PaymentMethod.BANK)
+        bank_line = sale.journal_entry.lines.get(account__code="1021")
+        self.assertEqual(bank_line.debit, sale.total)
+        self.assertContains(response, "Paid by Bank")
         self.item.refresh_from_db()
         self.assertEqual(self.item.quantity, 1)
+
+    def test_unknown_payment_method_is_rejected_atomically(self):
+        response = self._post(payment_method="crypto")
+
+        self.assertContains(response, "Choose a valid payment method")
+        self.assert_nothing_was_sold()
 
     def test_zero_and_negative_values_are_rejected(self):
         invalid_posts = [

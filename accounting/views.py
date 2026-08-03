@@ -555,12 +555,22 @@ def gold_movement(request):
             "sale__created_at",
             "sale__journal_entry__date",
             "sale__customer__name",
+            "sale__on_credit",
+            "sale__payment_method",
             "item__karat",
         )
         .annotate(weight=Sum(sale_weight))
         .order_by()
     )
     for result in period_sale_rows:
+        customer = result["sale__customer__name"] or "Walk-in customer"
+        if result["sale__on_credit"]:
+            payment_method = "On credit"
+        else:
+            payment_method = dict(Sale.PaymentMethod.choices).get(
+                result["sale__payment_method"],
+                "Other",
+            )
         events.append({
             "occurred_at": result["sale__created_at"],
             "ledger_date": result["sale__journal_entry__date"],
@@ -569,7 +579,7 @@ def gold_movement(request):
             "kind": "Sale",
             "kind_class": "sale",
             "reference": f"Sale #{result['sale_id']}",
-            "party": result["sale__customer__name"] or "Walk-in customer",
+            "party": f"{customer} · {payment_method}",
             "karat": result["item__karat"],
             "received_raw": zero,
             "out_raw": result["weight"] or zero,

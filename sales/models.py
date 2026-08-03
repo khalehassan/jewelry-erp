@@ -19,6 +19,11 @@ class Sale(models.Model):
         POSTED = "posted", "Posted"
         REVERSED = "reversed", "Reversed"
 
+    class PaymentMethod(models.TextChoices):
+        CASH = "cash", "Cash"
+        BANK = "bank", "Bank"
+        OTHER = "other", "Other"
+
     customer = models.ForeignKey("customers.Customer", on_delete=models.PROTECT, null=True, blank=True, related_name="sales")
     discount = models.DecimalField(
         max_digits=12,
@@ -27,6 +32,12 @@ class Sale(models.Model):
         validators=[MinValueValidator(Decimal("0.00"))],
     )
     on_credit = models.BooleanField(default=False, help_text="Sold on credit (customer owes you)")
+    payment_method = models.CharField(
+        max_length=10,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.CASH,
+        help_text="Used for sales paid immediately; credit sales post to Customer Receivables.",
+    )
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     reversal_journal_entry = models.ForeignKey(
@@ -51,6 +62,10 @@ class Sale(models.Model):
 
     class Meta:
         constraints = [
+            models.CheckConstraint(
+                condition=models.Q(payment_method__in=("cash", "bank", "other")),
+                name="sale_payment_method_valid",
+            ),
             models.CheckConstraint(
                 condition=models.Q(discount__gte=0),
                 name="sale_discount_nonnegative",
@@ -141,7 +156,17 @@ class Sale(models.Model):
             cogs_by[mapping.gold_cogs(karat)] += cost
             inventory_by[mapping.gold_inventory(karat)] += cost
 
-        money_account = mapping.RETAIL_RECEIVABLE if self.on_credit else mapping.CASH
+        payment_accounts = {
+            self.PaymentMethod.CASH: mapping.CASH,
+            self.PaymentMethod.BANK: mapping.BANK,
+            self.PaymentMethod.OTHER: mapping.OTHER_PAYMENT,
+        }
+        if self.on_credit:
+            money_account = mapping.RETAIL_RECEIVABLE
+            payment_label = "On credit"
+        else:
+            money_account = payment_accounts[self.payment_method]
+            payment_label = self.get_payment_method_display()
         lines = [(money_account, self.total, Decimal("0.00"))]
         if self.discount > 0:
             lines.append((mapping.SALES_DISCOUNTS, self.discount, Decimal("0.00")))
@@ -149,7 +174,11 @@ class Sale(models.Model):
         lines += [(code, amount, Decimal("0.00")) for code, amount in cogs_by.items()]
         lines += [(code, Decimal("0.00"), amount) for code, amount in inventory_by.items()]
 
-        entry = create_entry(self.created_at.date(), f"Sale #{self.pk}", lines)
+        entry = create_entry(
+            self.created_at.date(),
+            f"Sale #{self.pk} ({payment_label})",
+            lines,
+        )
         self.journal_entry = entry
         self.status = self.Status.POSTED
         self.save(update_fields=["journal_entry", "status"])

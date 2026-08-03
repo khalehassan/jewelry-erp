@@ -17,12 +17,15 @@ from .models import Sale, SaleLine
 @login_required
 def new_sale(request):
     if request.method == "POST":
+        payment_method = (request.POST.get("payment_method") or "").strip()
         item_ids = request.POST.getlist("item")
         golds = request.POST.getlist("gold")
         makings = request.POST.getlist("making")
         qtys = request.POST.getlist("qty")
 
         errors = []
+        if payment_method not in Sale.PaymentMethod.values:
+            errors.append("Choose a valid payment method: Cash, Bank, or Other.")
         try:
             discount = Decimal(request.POST.get("discount", ""))
             if not discount.is_finite() or discount < 0:
@@ -68,7 +71,7 @@ def new_sale(request):
                 "quantity": parsed_quantity,
             })
 
-        if not lines and not errors:
+        if not lines:
             errors.append("A sale must contain at least one item.")
         if errors:
             for error in errors:
@@ -120,6 +123,7 @@ def new_sale(request):
                     customer_id=request.POST.get("customer") or None,
                     discount=discount,
                     on_credit=bool(request.POST.get("on_credit")),
+                    payment_method=payment_method,
                 )
                 for line in lines:
                     item = items[line["item_id"]]
@@ -143,7 +147,11 @@ def new_sale(request):
 
     items = JewelryItem.objects.filter(is_archived=False, quantity__gt=0)
     customers = Customer.objects.all()
-    return render(request, "sales/new_sale.html", {"items": items, "customers": customers})
+    return render(request, "sales/new_sale.html", {
+        "items": items,
+        "customers": customers,
+        "payment_methods": Sale.PaymentMethod.choices,
+    })
 
 
 @login_required
