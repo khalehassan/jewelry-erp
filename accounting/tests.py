@@ -162,6 +162,38 @@ class GoldMovementReportTests(TestCase):
         self.assertEqual(summary_21k["out"], "2.000")
         self.assertEqual(summary_21k["closing"], "2.000")
 
+    def test_purchase_reversal_is_an_outgoing_transaction_and_reconciles(self):
+        purchase = Purchase.objects.create()
+        PurchaseLine.objects.create(
+            purchase=purchase,
+            name="Reversed 21K ring",
+            karat=21,
+            weight_grams=Decimal("2.000"),
+            raw_gold_price_per_gram=Decimal("1000.00"),
+            craftsmanship_per_gram=Decimal("100.00"),
+            stamp_charge=Decimal("50.00"),
+            quantity=1,
+        )
+        purchase.post_to_ledger()
+        purchase.reverse(user=self.user, reason="Duplicate purchase")
+
+        today = timezone.localdate().isoformat()
+        response = self.client.get(reverse("accounting:gold_movement"), {
+            "from": today,
+            "to": today,
+        })
+
+        rows = response.context["rows"]
+        self.assertEqual([row["kind"] for row in rows], [
+            "Purchase",
+            "Purchase reversal",
+        ])
+        self.assertEqual(rows[0]["received"], "2.000")
+        self.assertEqual(rows[0]["balance"], "2.000")
+        self.assertEqual(rows[1]["out"], "2.000")
+        self.assertEqual(rows[1]["balance"], "0.000")
+        self.assertTrue(response.context["is_reconciled"])
+
     def test_filtered_ledger_carries_forward_opening_balance(self):
         opening = Purchase.objects.create(is_opening=True)
         PurchaseLine.objects.create(

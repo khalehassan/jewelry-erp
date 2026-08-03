@@ -1,0 +1,54 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; <a href="{{ change_url }}">{{ original }}</a>
+    &rsaquo; Reverse
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Reverse Purchase #{{ purchase.pk }}</h1>
+
+    <p>
+        This keeps the original purchase as a permanent audit record, creates an
+        opposite journal entry, and removes the purchased inventory.
+    </p>
+    <p>
+        Reversal is blocked if any purchased item has been sold, its stock quantity
+        has changed, or a supplier payment has already been applied.
+    </p>
+
+    {% if error_message %}
+        <ul class="errorlist"><li>{{ error_message }}</li></ul>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            <div class="form-row">
+                <div>
+                    <label class="required" for="id_reason">Reversal reason:</label>
+                    <textarea
+                        id="id_reason"
+                        name="reason"
+                        rows="4"
+                        cols="70"
+                        required
+                        placeholder="Explain why this purchase is being reversed"
+                    >{{ reason }}</textarea>
+                </div>
+            </div>
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Confirm reversal" class="deletelink">
+            <a href="{{ change_url }}" class="button cancel-link">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

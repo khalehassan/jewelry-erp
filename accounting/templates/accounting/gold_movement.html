@@ -22,6 +22,7 @@
     .transaction { display:inline-block; border-radius:999px; font-size:11px; font-weight:800; padding:4px 8px; text-transform:uppercase; }
     .transaction.purchase { background:var(--good-bg); color:var(--good); }
     .transaction.sale { background:#fbe9e7; color:#a9342d; }
+    .transaction.reversal { background:#fbe9e7; color:#a9342d; }
     .transaction.opening { background:rgba(169,129,47,.14); color:var(--gold); }
     .received { color:var(--good); font-weight:700; }
     .out { color:#b13a32; font-weight:700; }
@@ -33,7 +34,7 @@
     .summary-table th:first-child, .summary-table td:first-child { text-align:left; }
 
     @media (prefers-color-scheme: dark) {
-        .transaction.sale { background:#3b1c19; color:#f08a82; }
+        .transaction.sale, .transaction.reversal { background:#3b1c19; color:#f08a82; }
         .out, .negative { color:#f08a82; }
     }
     @media (max-width:650px) {
@@ -52,7 +53,7 @@
 <div class="head-row">
     <div>
         <h1 style="margin-bottom:2px;">Gold Transaction Log</h1>
-        <div class="sub">Every posted gold purchase and sale in ledger-date order, with the balance after each transaction.</div>
+        <div class="sub">Every posted gold purchase, sale, and purchase reversal in ledger-date order, with the balance after each transaction.</div>
     </div>
     <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" class="btn ghost" onclick="window.print()">Print</button>
@@ -115,7 +116,7 @@
                 <td class="num {{ row.balance_class }}">{{ row.balance }}</td>
             </tr>
         {% empty %}
-            <tr><td colspan="7" class="sub">No gold purchases or sales in this period.</td></tr>
+            <tr><td colspan="7" class="sub">No gold transactions in this period.</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -148,7 +149,7 @@
 </div>
 
 <p class="sub" style="margin-top:14px;">
-    The running balance uses posted transactions only and is kept separately for 18K, 21K, and 24K gold. The opening column carries all earlier posted purchases, opening stock, and sales into the selected period.
+    The running balance uses posted transactions only and is kept separately for 18K, 21K, and 24K gold. The opening column carries all earlier posted purchases, opening stock, sales, and purchase reversals into the selected period.
     {% if show_physical_reconciliation %}{% if is_reconciled %}Current physical gold reconciles to this closing balance. ✅{% else %}Current physical gold differs from the posted movement; review unposted records or manual inventory changes.{% endif %}{% endif %}
 </p>
 {% endblock %}

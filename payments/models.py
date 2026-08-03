@@ -72,7 +72,13 @@ class Payment(models.Model):
     def supplier_balance(cls, supplier, exclude_payment_id=None):
         """Return credit purchases, payments, and the unpaid supplier balance."""
         billed = sum(
-            (purchase.total for purchase in supplier.purchases.filter(on_credit=True)),
+            (
+                purchase.total
+                for purchase in supplier.purchases.filter(
+                    on_credit=True,
+                    status="posted",
+                )
+            ),
             Decimal("0.00"),
         )
         payments = supplier.payments.filter(kind=cls.Kind.PAY)

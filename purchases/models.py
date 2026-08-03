@@ -1,11 +1,13 @@
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models.functions import Lower, Trim
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 from accounting.services import POSTED_LOCK_MESSAGE, deletion_origin_includes
 from config.identity import normalize_party, validate_party_duplicates
@@ -52,11 +54,70 @@ class Supplier(models.Model):
 
 
 class Purchase(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        POSTED = "posted", "Posted"
+        REVERSED = "reversed", "Reversed"
+
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="purchases")
     on_credit = models.BooleanField(default=False, help_text="Bought on credit (you owe the supplier)")
     is_opening = models.BooleanField(default=False, help_text="Stock you already owned, brought onto the books (e.g. a CSV import)")
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        editable=False,
+    )
+    reversed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_purchases",
+        editable=False,
+    )
+    reversal_reason = models.TextField(blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status="draft",
+                        journal_entry__isnull=True,
+                        reversal_journal_entry__isnull=True,
+                        reversed_at__isnull=True,
+                        reversed_by__isnull=True,
+                        reversal_reason="",
+                    )
+                    | models.Q(
+                        status="posted",
+                        journal_entry__isnull=False,
+                        reversal_journal_entry__isnull=True,
+                        reversed_at__isnull=True,
+                        reversed_by__isnull=True,
+                        reversal_reason="",
+                    )
+                    | (
+                        models.Q(
+                            status="reversed",
+                            journal_entry__isnull=False,
+                            reversal_journal_entry__isnull=False,
+                            reversed_at__isnull=False,
+                            reversed_by__isnull=False,
+                        )
+                        & ~models.Q(reversal_reason="")
+                    )
+                ),
+                name="purchase_status_consistent",
+            ),
+        ]
 
     def __str__(self):
         if self.is_opening:
@@ -65,9 +126,10 @@ class Purchase(models.Model):
         return f"Purchase #{self.pk} — {who}"
 
     def save(self, *args, **kwargs):
-        # Locked once posted; only the system's own journal_entry stamp gets through.
-        if self.pk and self.journal_entry_id:
-            if set(kwargs.get("update_fields") or []) != {"journal_entry"}:
+        # The first ledger stamp is allowed; after that, history is immutable.
+        if self.pk:
+            existing = Purchase.objects.filter(pk=self.pk).values("journal_entry_id").first()
+            if existing and existing["journal_entry_id"]:
                 raise ValidationError(POSTED_LOCK_MESSAGE.format(what=f"Purchase #{self.pk}"))
         super().save(*args, **kwargs)
 
@@ -76,6 +138,8 @@ class Purchase(models.Model):
         return sum((line.line_total for line in self.lines.all()), Decimal("0.00"))
 
     def post_to_ledger(self):
+        if self.status == self.Status.REVERSED:
+            raise ValidationError(f"Purchase #{self.pk} is reversed and cannot be posted again.")
         if self.journal_entry_id:
             return
         if not self.lines.exists():
@@ -105,7 +169,113 @@ class Purchase(models.Model):
         lines.append((credit_account, Decimal("0.00"), self.total))
         entry = create_entry(self.created_at.date(), description, lines)
         self.journal_entry = entry
-        self.save(update_fields=["journal_entry"])
+        self.status = self.Status.POSTED
+        self.save(update_fields=["journal_entry", "status"])
+
+    def reverse(self, *, user, reason):
+        """Reverse a posted purchase while preserving its complete audit trail."""
+        reason = " ".join(str(reason or "").split())
+        if not reason:
+            raise ValidationError("A reversal reason is required.")
+        if not self.pk:
+            raise ValidationError("Save and post the purchase before reversing it.")
+        if user is None or not getattr(user, "pk", None):
+            raise ValidationError("A named user is required to reverse a purchase.")
+
+        from accounting.services import create_entry
+        from payments.models import Payment
+        from sales.models import SaleLine
+
+        with transaction.atomic():
+            purchase = (
+                Purchase.objects.select_for_update()
+                .select_related("journal_entry", "supplier")
+                .get(pk=self.pk)
+            )
+            if purchase.status == self.Status.REVERSED:
+                raise ValidationError(f"Purchase #{purchase.pk} has already been reversed.")
+            if purchase.status != self.Status.POSTED or not purchase.journal_entry_id:
+                raise ValidationError("Only a posted purchase can be reversed.")
+
+            purchase_lines = list(purchase.lines.order_by("pk"))
+            if not purchase_lines:
+                raise ValidationError("This purchase has no item lines to reverse.")
+
+            item_ids = [line.created_item_id for line in purchase_lines]
+            if any(item_id is None for item_id in item_ids):
+                raise ValidationError(
+                    "This purchase is missing its inventory link and cannot be reversed safely."
+                )
+            items = {
+                item.pk: item
+                for item in JewelryItem.objects.select_for_update().filter(pk__in=item_ids)
+            }
+            if len(items) != len(set(item_ids)):
+                raise ValidationError(
+                    "One of this purchase's inventory items no longer exists. Reversal was cancelled."
+                )
+
+            if SaleLine.objects.filter(item_id__in=item_ids).exists():
+                raise ValidationError(
+                    "This purchase cannot be reversed because at least one purchased item "
+                    "has been used on a sale."
+                )
+
+            for line in purchase_lines:
+                item = items[line.created_item_id]
+                if item.source_purchase_line_id != line.pk or item.quantity != line.quantity:
+                    raise ValidationError(
+                        f"Inventory for {line.name} no longer matches the original purchase. "
+                        "Reversal was cancelled."
+                    )
+
+            if purchase.on_credit and purchase.supplier_id:
+                _, _, outstanding = Payment.supplier_balance(purchase.supplier)
+                if outstanding < purchase.total:
+                    raise ValidationError(
+                        "This credit purchase cannot be reversed because a supplier payment "
+                        "has already been applied against it."
+                    )
+
+            original_lines = list(
+                purchase.journal_entry.lines.select_related("account").order_by("pk")
+            )
+            if not original_lines or not purchase.journal_entry.is_balanced:
+                raise ValidationError(
+                    "The original journal entry is incomplete or unbalanced. Reversal was cancelled."
+                )
+            reversing_lines = [
+                (line.account.code, line.credit, line.debit)
+                for line in original_lines
+            ]
+            reversal_entry = create_entry(
+                timezone.localdate(),
+                f"Reversal of Purchase #{purchase.pk}: {reason}"[:255],
+                reversing_lines,
+            )
+
+            for line in purchase_lines:
+                item = items[line.created_item_id]
+                line.created_item = None
+                line.save(update_fields=["created_item"])
+                item.delete()
+
+            reversed_at = timezone.now()
+            updated = Purchase.objects.filter(
+                pk=purchase.pk,
+                status=self.Status.POSTED,
+            ).update(
+                status=self.Status.REVERSED,
+                reversal_journal_entry=reversal_entry,
+                reversed_at=reversed_at,
+                reversed_by=user,
+                reversal_reason=reason,
+            )
+            if updated != 1:
+                raise ValidationError("The purchase status changed during reversal. Try again.")
+
+        self.refresh_from_db()
+        return reversal_entry
 
 
 class PurchaseLine(models.Model):
@@ -232,6 +402,8 @@ def create_stock_item(sender, instance, created, **kwargs):
 
 @receiver(pre_delete, sender=Purchase)
 def cleanup_on_purchase_delete(sender, instance, origin=None, **kwargs):
+    if instance.status == Purchase.Status.REVERSED:
+        raise ValidationError("A reversed purchase is a permanent audit record and cannot be deleted.")
     # The PurchaseLine -> JewelryItem ownership link handles stock deletion.
     # If a sale still references an item, Django blocks the entire purchase
     # deletion before anything is removed, preserving every connection.

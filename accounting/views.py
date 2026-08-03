@@ -1,6 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db.models import DecimalField, ExpressionWrapper, F, Sum
+from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -127,13 +127,17 @@ def _operational_reconciliation(as_of):
     receivable_operational = credit_sales - customer_receipts
     receivable_ledger = _account_balance(mapping.RETAIL_RECEIVABLE, as_of)
 
+    active_credit_purchases = Purchase.objects.filter(
+        on_credit=True,
+        journal_entry__date__lte=as_of,
+    ).filter(
+        Q(reversal_journal_entry__isnull=True)
+        | Q(reversal_journal_entry__date__gt=as_of)
+    )
     credit_purchases = sum(
         (
             purchase.total
-            for purchase in Purchase.objects.filter(
-                on_credit=True,
-                journal_entry__date__lte=as_of,
-            )
+            for purchase in active_credit_purchases
         ),
         zero,
     )
@@ -448,6 +452,17 @@ def gold_movement(request):
         if result["karat"] in karats:
             opening_balances[result["karat"]] += result["weight"] or zero
 
+    opening_reversal_rows = (
+        PurchaseLine.objects
+        .filter(purchase__reversal_journal_entry__date__lt=date_from)
+        .values("karat")
+        .annotate(weight=Sum(purchase_weight))
+        .order_by()
+    )
+    for result in opening_reversal_rows:
+        if result["karat"] in karats:
+            opening_balances[result["karat"]] -= result["weight"] or zero
+
     sale_weight = ExpressionWrapper(
         F("item__weight_grams") * F("quantity"),
         output_field=DecimalField(max_digits=18, decimal_places=3),
@@ -524,6 +539,38 @@ def gold_movement(request):
             "reference": f"Sale #{result['sale_id']}",
             "party": result["sale__customer__name"] or "Walk-in customer",
             "karat": result["item__karat"],
+            "received_raw": zero,
+            "out_raw": result["weight"] or zero,
+        })
+
+    period_reversal_rows = (
+        PurchaseLine.objects
+        .filter(purchase__reversal_journal_entry__date__range=(date_from, date_to))
+        .values(
+            "purchase_id",
+            "purchase__reversed_at",
+            "purchase__reversal_journal_entry__date",
+            "purchase__supplier__name",
+            "purchase__reversal_reason",
+            "karat",
+        )
+        .annotate(weight=Sum(purchase_weight))
+        .order_by()
+    )
+    for result in period_reversal_rows:
+        supplier = result["purchase__supplier__name"] or ""
+        reason = result["purchase__reversal_reason"]
+        details = " · ".join(value for value in (supplier, reason) if value)
+        events.append({
+            "occurred_at": result["purchase__reversed_at"],
+            "ledger_date": result["purchase__reversal_journal_entry__date"],
+            "sort_order": 2,
+            "source_id": result["purchase_id"],
+            "kind": "Purchase reversal",
+            "kind_class": "reversal",
+            "reference": f"Reversal of Purchase #{result['purchase_id']}",
+            "party": details,
+            "karat": result["karat"],
             "received_raw": zero,
             "out_raw": result["weight"] or zero,
         })
