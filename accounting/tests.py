@@ -237,6 +237,54 @@ class GoldMovementReportTests(TestCase):
         self.assertEqual(rows[2]["balance"], "2.000")
         self.assertTrue(response.context["is_reconciled"])
 
+    def test_purchase_reversal_after_sale_reversal_closes_gold_and_inventory(self):
+        purchase = Purchase.objects.create()
+        purchase_line = PurchaseLine.objects.create(
+            purchase=purchase,
+            name="Fully reversed audit chain",
+            karat=21,
+            weight_grams=Decimal("2.000"),
+            raw_gold_price_per_gram=Decimal("1000.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
+            quantity=1,
+        )
+        purchase.post_to_ledger()
+        sale = Sale.objects.create()
+        SaleLine.objects.create(
+            sale=sale,
+            item=purchase_line.created_item,
+            gold_price_per_gram=Decimal("1500.00"),
+            making_charge_per_gram=Decimal("0.00"),
+            quantity=1,
+        )
+        sale.post_to_ledger()
+        sale.reverse(user=self.user, reason="Duplicate sale")
+        purchase.reverse(user=self.user, reason="Duplicate purchase")
+
+        today = timezone.localdate().isoformat()
+        movement = self.client.get(reverse("accounting:gold_movement"), {
+            "from": today,
+            "to": today,
+        })
+        inventory = self.client.get(reverse("accounting:inventory_report"))
+
+        rows = movement.context["rows"]
+        self.assertEqual([row["kind"] for row in rows], [
+            "Purchase",
+            "Sale",
+            "Sale reversal",
+            "Purchase reversal",
+        ])
+        self.assertEqual(rows[-1]["balance"], "0.000")
+        self.assertTrue(movement.context["is_reconciled"])
+        self.assertEqual(inventory.context["total_cost"], "0.00")
+        self.assertEqual(inventory.context["ledger_total"], "0.00")
+        self.assertTrue(inventory.context["is_reconciled"])
+        item = JewelryItem.objects.get(pk=purchase_line.created_item_id)
+        self.assertTrue(item.is_archived)
+        self.assertEqual(item.quantity, 0)
+
     def test_filtered_ledger_carries_forward_opening_balance(self):
         opening = Purchase.objects.create(is_opening=True)
         PurchaseLine.objects.create(

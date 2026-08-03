@@ -97,7 +97,7 @@ class PurchaseReversalTests(TestCase):
             quantity=1,
         )
 
-        with self.assertRaisesMessage(ValidationError, "used on a sale"):
+        with self.assertRaisesMessage(ValidationError, "active sale"):
             purchase.reverse(user=self.user, reason="Incorrect supplier")
 
         purchase.refresh_from_db()
@@ -106,6 +106,70 @@ class PurchaseReversalTests(TestCase):
         self.assertIsNone(purchase.reversal_journal_entry_id)
         self.assertEqual(line.created_item_id, item.pk)
         self.assertTrue(JewelryItem.objects.filter(pk=item.pk).exists())
+
+    def test_reversal_is_allowed_after_linked_sale_is_reversed(self):
+        purchase, line, item = self._posted_purchase(quantity=2)
+        sale = Sale.objects.create()
+        sale_line = SaleLine.objects.create(
+            sale=sale,
+            item=item,
+            gold_price_per_gram=Decimal("1000.00"),
+            making_charge_per_gram=Decimal("0.00"),
+            quantity=1,
+        )
+        sale.post_to_ledger()
+        sale.reverse(user=self.user, reason="Customer sale entered incorrectly")
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, 2)
+
+        purchase.reverse(user=self.user, reason="Supplier purchase entered incorrectly")
+
+        purchase.refresh_from_db()
+        line.refresh_from_db()
+        item.refresh_from_db()
+        sale_line.refresh_from_db()
+        self.assertEqual(purchase.status, Purchase.Status.REVERSED)
+        self.assertIsNotNone(purchase.reversal_journal_entry_id)
+        self.assertEqual(line.created_item_id, item.pk)
+        self.assertEqual(sale_line.item_id, item.pk)
+        self.assertEqual(item.quantity, 0)
+        self.assertTrue(item.is_archived)
+        self.assertEqual(
+            JewelryItem.objects.filter(is_archived=False, quantity__gt=0).count(),
+            0,
+        )
+
+        self.client.force_login(self.user)
+        receipt = self.client.get(reverse("sales:receipt", args=[sale.pk]))
+        self.assertEqual(receipt.status_code, 200)
+        self.assertContains(receipt, "Reversed sale")
+        self.assertContains(receipt, item.name)
+        new_sale = self.client.get(reverse("sales:new_sale"))
+        self.assertNotContains(new_sale, item.name)
+        inventory_list = self.client.get(reverse("admin:inventory_jewelryitem_changelist"))
+        self.assertContains(inventory_list, "Archived — source purchase reversed")
+
+    def test_reversed_sale_does_not_bypass_purchase_stock_safeguard(self):
+        purchase, _, item = self._posted_purchase(quantity=2)
+        sale = Sale.objects.create()
+        SaleLine.objects.create(
+            sale=sale,
+            item=item,
+            gold_price_per_gram=Decimal("1000.00"),
+            making_charge_per_gram=Decimal("0.00"),
+            quantity=1,
+        )
+        sale.post_to_ledger()
+        sale.reverse(user=self.user, reason="Customer sale entered incorrectly")
+        JewelryItem.objects.filter(pk=item.pk).update(quantity=1)
+
+        with self.assertRaisesMessage(ValidationError, "no longer matches"):
+            purchase.reverse(user=self.user, reason="Incorrect supplier")
+
+        purchase.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(purchase.status, Purchase.Status.POSTED)
+        self.assertFalse(item.is_archived)
 
     def test_reversal_is_blocked_when_stock_no_longer_matches(self):
         purchase, line, item = self._posted_purchase()

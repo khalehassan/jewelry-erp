@@ -294,6 +294,7 @@ class SaleLine(models.Model):
     def _reserve_stock(item_id, quantity):
         updated = JewelryItem.objects.filter(
             pk=item_id,
+            is_archived=False,
             quantity__gte=quantity,
         ).update(quantity=F("quantity") - quantity)
         if updated:

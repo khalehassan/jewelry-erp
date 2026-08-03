@@ -17,11 +17,12 @@
 
     <p>
         This keeps the original purchase as a permanent audit record, creates an
-        opposite journal entry, and removes the purchased inventory.
+        opposite journal entry, and removes the purchased quantity from available inventory.
     </p>
     <p>
-        Reversal is blocked if any purchased item has been sold, its stock quantity
-        has changed, or a supplier payment has already been applied.
+        Reversal is blocked if any purchased item is on an active sale, its stock
+        quantity has changed, or a supplier payment has already been applied. A
+        reversed sale does not block this purchase reversal.
     </p>
 
     {% if error_message %}

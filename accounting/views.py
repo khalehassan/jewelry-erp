@@ -98,7 +98,7 @@ def _operational_reconciliation(as_of):
     inventory_value = sum(
         (
             item.cost_price * item.quantity
-            for item in JewelryItem.objects.filter(quantity__gt=0)
+            for item in JewelryItem.objects.filter(is_archived=False, quantity__gt=0)
         ),
         zero,
     )
@@ -382,7 +382,10 @@ def balance_sheet(request):
 @require_perm("accounting.view_account")
 def inventory_report(request):
     as_of = timezone.localdate()
-    items = JewelryItem.objects.filter(quantity__gt=0).order_by("location", "name")
+    items = JewelryItem.objects.filter(
+        is_archived=False,
+        quantity__gt=0,
+    ).order_by("location", "name")
     total_cost = Decimal("0.00")
     physical_by_karat = {karat: Decimal("0.00") for karat in (18, 21, 24)}
     piece_count = 0
@@ -656,7 +659,7 @@ def gold_movement(request):
     show_physical_reconciliation = date_to == timezone.localdate()
     physical_weights = {karat: zero for karat in karats}
     if show_physical_reconciliation:
-        for item in JewelryItem.objects.filter(quantity__gt=0):
+        for item in JewelryItem.objects.filter(is_archived=False, quantity__gt=0):
             if item.karat in physical_weights:
                 physical_weights[item.karat] += item.weight_grams * item.quantity
 

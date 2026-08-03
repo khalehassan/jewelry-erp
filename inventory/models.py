@@ -30,6 +30,11 @@ class JewelryItem(models.Model):
     location = models.CharField(max_length=20, choices=Location.choices, default=Location.SAFE)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
+    is_archived = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text="Retained only as an audit reference after its source purchase is reversed.",
+    )
     source_purchase_line = models.OneToOneField(
         "purchases.PurchaseLine",
         null=True,
@@ -39,6 +44,14 @@ class JewelryItem(models.Model):
         editable=False,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(is_archived=False) | models.Q(quantity=0),
+                name="archived_jewelry_item_has_zero_quantity",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.name} — {self.karat}K, {self.weight_grams}g"

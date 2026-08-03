@@ -184,7 +184,7 @@ class Purchase(models.Model):
 
         from accounting.services import create_entry
         from payments.models import Payment
-        from sales.models import SaleLine
+        from sales.models import Sale, SaleLine
 
         with transaction.atomic():
             purchase = (
@@ -215,15 +215,24 @@ class Purchase(models.Model):
                     "One of this purchase's inventory items no longer exists. Reversal was cancelled."
                 )
 
-            if SaleLine.objects.filter(item_id__in=item_ids).exists():
+            linked_sale_lines = SaleLine.objects.filter(item_id__in=item_ids)
+            if linked_sale_lines.exclude(sale__status=Sale.Status.REVERSED).exists():
                 raise ValidationError(
                     "This purchase cannot be reversed because at least one purchased item "
-                    "has been used on a sale."
+                    "is still used on an active sale. Reverse that sale first."
                 )
+            historical_item_ids = set(
+                linked_sale_lines.filter(sale__status=Sale.Status.REVERSED)
+                .values_list("item_id", flat=True)
+            )
 
             for line in purchase_lines:
                 item = items[line.created_item_id]
-                if item.source_purchase_line_id != line.pk or item.quantity != line.quantity:
+                if (
+                    item.source_purchase_line_id != line.pk
+                    or item.quantity != line.quantity
+                    or item.is_archived
+                ):
                     raise ValidationError(
                         f"Inventory for {line.name} no longer matches the original purchase. "
                         "Reversal was cancelled."
@@ -256,9 +265,23 @@ class Purchase(models.Model):
 
             for line in purchase_lines:
                 item = items[line.created_item_id]
-                line.created_item = None
-                line.save(update_fields=["created_item"])
-                item.delete()
+                if item.pk in historical_item_ids:
+                    # The reversed sale line is a permanent audit record and still
+                    # references this item. Keep the reference, but remove it from
+                    # all usable and valued inventory.
+                    updated_item = JewelryItem.objects.filter(
+                        pk=item.pk,
+                        is_archived=False,
+                        quantity=line.quantity,
+                    ).update(quantity=0, is_archived=True)
+                    if updated_item != 1:
+                        raise ValidationError(
+                            f"Inventory for {line.name} changed during reversal. Try again."
+                        )
+                else:
+                    line.created_item = None
+                    line.save(update_fields=["created_item"])
+                    item.delete()
 
             reversed_at = timezone.now()
             updated = Purchase.objects.filter(

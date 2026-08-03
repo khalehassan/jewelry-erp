@@ -9,6 +9,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 
 from config.admin_controls import ProtectedFromAdminDeletionMixin
+from inventory.models import JewelryItem
 
 from .models import Sale, SaleLine
 
@@ -54,6 +55,14 @@ class SaleLineInline(admin.TabularInline):
     formset = SaleLineFormSet
     extra = 1
     readonly_fields = ("line_total_display",)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "item":
+            kwargs["queryset"] = JewelryItem.objects.filter(
+                is_archived=False,
+                quantity__gt=0,
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description="Line total (EGP)")
     def line_total_display(self, obj):

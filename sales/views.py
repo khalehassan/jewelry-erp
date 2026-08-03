@@ -81,7 +81,8 @@ def new_sale(request):
                 items = {
                     item.pk: item
                     for item in JewelryItem.objects.select_for_update().filter(
-                        pk__in=requested_ids
+                        pk__in=requested_ids,
+                        is_archived=False,
                     )
                 }
                 missing_ids = set(requested_ids) - set(items)
@@ -140,7 +141,7 @@ def new_sale(request):
         messages.success(request, f"Sale #{sale.pk} saved — total {sale.total:,.2f} EGP")
         return redirect("sales:receipt", pk=sale.pk)
 
-    items = JewelryItem.objects.filter(quantity__gt=0)
+    items = JewelryItem.objects.filter(is_archived=False, quantity__gt=0)
     customers = Customer.objects.all()
     return render(request, "sales/new_sale.html", {"items": items, "customers": customers})
 
@@ -182,7 +183,7 @@ def dashboard(request):
     todays_profit = todays_revenue - todays_cost
 
     stock_value = Decimal("0.00")
-    for item in JewelryItem.objects.all():
+    for item in JewelryItem.objects.filter(is_archived=False):
         stock_value += item.cost_price * item.quantity
 
     sold = {}
