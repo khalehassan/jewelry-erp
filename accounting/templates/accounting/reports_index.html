@@ -47,6 +47,10 @@
     <div><div class="title">Gold Transaction Log</div><div class="desc">Every purchase and sale, with a running gold balance by karat</div></div>
     <span class="arrow">→</span>
 </a>
+<a class="report-line" href="{% url 'accounting:bank_movement' %}">
+    <div><div class="title">Bank Account Movement &amp; Reconciliation</div><div class="desc">Deposits, withdrawals, running balance, and comparison with the actual bank statement</div></div>
+    <span class="arrow">→</span>
+</a>
 <a class="report-line" href="{% url 'accounting:trial_balance' %}">
     <div><div class="title">Trial Balance</div><div class="desc">Every account's debit &amp; credit — proves the books balance</div></div>
     <span class="arrow">→</span>

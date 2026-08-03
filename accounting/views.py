@@ -1,4 +1,4 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import render, get_object_or_404, redirect
@@ -423,6 +423,107 @@ def inventory_report(request):
         "item_count": piece_count,
         "sku_count": len(rows),
         "as_of": as_of.isoformat(),
+    })
+
+
+@require_perm("accounting.view_account")
+def bank_movement(request):
+    """Movement and statement reconciliation for one bank/detail payment account."""
+    today = timezone.localdate()
+    date_from = parse_date(request.GET.get("from") or "") or today.replace(day=1)
+    date_to = parse_date(request.GET.get("to") or "") or today
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+        messages.info(
+            request,
+            "The dates were reversed, so they have been put in chronological order.",
+        )
+
+    bank_accounts = list(
+        Account.objects.filter(
+            parent__code="1020",
+            is_group=False,
+        ).order_by("code")
+    )
+    selected_code = (request.GET.get("account") or mapping.BANK).strip()
+    account = next(
+        (candidate for candidate in bank_accounts if candidate.code == selected_code),
+        None,
+    )
+    if account is None:
+        account = next(
+            (candidate for candidate in bank_accounts if candidate.code == mapping.BANK),
+            bank_accounts[0],
+        )
+        messages.info(request, "The selected bank account was not valid, so the default was used.")
+
+    opening_totals = account.lines.filter(entry__date__lt=date_from).aggregate(
+        debit=Sum("debit"),
+        credit=Sum("credit"),
+    )
+    opening_balance = (
+        (opening_totals["debit"] or Decimal("0.00"))
+        - (opening_totals["credit"] or Decimal("0.00"))
+    )
+    running_balance = opening_balance
+    money_in_total = Decimal("0.00")
+    money_out_total = Decimal("0.00")
+    rows = []
+    lines = account.lines.filter(
+        entry__date__range=(date_from, date_to),
+    ).select_related("entry").order_by("entry__date", "entry__id", "id")
+    for line in lines:
+        money_in_total += line.debit
+        money_out_total += line.credit
+        running_balance += line.debit - line.credit
+        rows.append({
+            "entry_id": line.entry_id,
+            "date": line.entry.date,
+            "description": line.entry.description or f"Journal entry #{line.entry_id}",
+            "money_in": _money(line.debit) if line.debit else "—",
+            "money_out": _money(line.credit) if line.credit else "—",
+            "running_balance": _money(running_balance),
+            "running_class": "negative" if running_balance < 0 else "positive",
+        })
+
+    actual_raw = (request.GET.get("actual_balance") or "").strip()
+    actual_input = actual_raw
+    actual_balance = None
+    actual_error = ""
+    if actual_raw:
+        try:
+            actual_balance = Decimal(actual_raw.replace(",", ""))
+            if not actual_balance.is_finite():
+                raise InvalidOperation
+            actual_balance = _round_money(actual_balance)
+            actual_input = f"{actual_balance:.2f}"
+        except (InvalidOperation, TypeError, ValueError):
+            actual_error = "Enter a valid actual bank ending balance."
+            actual_balance = None
+
+    difference = None
+    is_matched = False
+    if actual_balance is not None:
+        difference = actual_balance - running_balance
+        is_matched = difference == 0
+
+    return render(request, "accounting/bank_movement.html", {
+        "account": account,
+        "bank_accounts": bank_accounts,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "actual_input": actual_input,
+        "actual_error": actual_error,
+        "actual_balance": _money(actual_balance) if actual_balance is not None else "",
+        "difference": _money(difference) if difference is not None else "",
+        "is_matched": is_matched,
+        "has_actual_balance": actual_balance is not None,
+        "opening_balance": _money(opening_balance),
+        "money_in_total": _money(money_in_total),
+        "money_out_total": _money(money_out_total),
+        "ending_balance": _money(running_balance),
+        "ending_class": "negative" if running_balance < 0 else "positive",
+        "rows": rows,
     })
 
 

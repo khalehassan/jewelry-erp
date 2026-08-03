@@ -91,6 +91,145 @@ class AdminControlTests(TestCase):
         self.assertEqual(entry.description, "Protected journal entry")
 
 
+class BankMovementReportTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="bank-report-owner",
+            password="test-password",
+        )
+        self.user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="accounting",
+            codename="view_account",
+        ))
+        self.client.force_login(self.user)
+
+        create_entry(date(2026, 6, 30), "Opening bank funding", [
+            ("1021", Decimal("1000.00"), Decimal("0.00")),
+            ("3010", Decimal("0.00"), Decimal("1000.00")),
+        ])
+        create_entry(date(2026, 7, 5), "Bank deposit", [
+            ("1021", Decimal("500.00"), Decimal("0.00")),
+            ("3010", Decimal("0.00"), Decimal("500.00")),
+        ])
+        create_entry(date(2026, 7, 10), "Bank withdrawal", [
+            ("7550", Decimal("200.00"), Decimal("0.00")),
+            ("1021", Decimal("0.00"), Decimal("200.00")),
+        ])
+
+    def test_report_has_opening_movements_running_balance_and_match(self):
+        response = self.client.get(reverse("accounting:bank_movement"), {
+            "account": "1021",
+            "from": "2026-07-01",
+            "to": "2026-07-31",
+            "actual_balance": "1,300.00",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["opening_balance"], "1,000.00")
+        self.assertEqual(response.context["money_in_total"], "500.00")
+        self.assertEqual(response.context["money_out_total"], "200.00")
+        self.assertEqual(response.context["ending_balance"], "1,300.00")
+        self.assertEqual(response.context["actual_balance"], "1,300.00")
+        self.assertEqual(response.context["difference"], "0.00")
+        self.assertTrue(response.context["is_matched"])
+        rows = response.context["rows"]
+        self.assertEqual([row["description"] for row in rows], [
+            "Bank deposit",
+            "Bank withdrawal",
+        ])
+        self.assertEqual(rows[0]["money_in"], "500.00")
+        self.assertEqual(rows[0]["running_balance"], "1,500.00")
+        self.assertEqual(rows[1]["money_out"], "200.00")
+        self.assertEqual(rows[1]["running_balance"], "1,300.00")
+
+        reports = self.client.get(reverse("accounting:reports"))
+        self.assertContains(reports, "Bank Account Movement &amp; Reconciliation")
+
+    def test_report_flags_mismatch_and_invalid_actual_balance(self):
+        mismatch = self.client.get(reverse("accounting:bank_movement"), {
+            "from": "2026-07-01",
+            "to": "2026-07-31",
+            "actual_balance": "1250.00",
+        })
+        self.assertFalse(mismatch.context["is_matched"])
+        self.assertTrue(mismatch.context["has_actual_balance"])
+        self.assertEqual(mismatch.context["difference"], "-50.00")
+        self.assertContains(mismatch, "Bank balance does not match")
+
+        invalid = self.client.get(reverse("accounting:bank_movement"), {
+            "from": "2026-07-01",
+            "to": "2026-07-31",
+            "actual_balance": "not-a-number",
+        })
+        self.assertFalse(invalid.context["has_actual_balance"])
+        self.assertEqual(
+            invalid.context["actual_error"],
+            "Enter a valid actual bank ending balance.",
+        )
+
+    def test_bank_sales_and_purchases_appear_automatically(self):
+        purchase = Purchase.objects.create(payment_method=Purchase.PaymentMethod.BANK)
+        purchase_line = PurchaseLine.objects.create(
+            purchase=purchase,
+            name="Bank movement ring",
+            karat=21,
+            weight_grams=Decimal("1.000"),
+            raw_gold_price_per_gram=Decimal("1000.00"),
+            craftsmanship_per_gram=Decimal("0.00"),
+            stamp_charge=Decimal("0.00"),
+            quantity=1,
+        )
+        purchase.post_to_ledger()
+        sale = Sale.objects.create(payment_method=Sale.PaymentMethod.BANK)
+        SaleLine.objects.create(
+            sale=sale,
+            item=purchase_line.created_item,
+            gold_price_per_gram=Decimal("1500.00"),
+            making_charge_per_gram=Decimal("0.00"),
+            quantity=1,
+        )
+        sale.post_to_ledger()
+
+        today = timezone.localdate().isoformat()
+        response = self.client.get(reverse("accounting:bank_movement"), {
+            "from": today,
+            "to": today,
+            "actual_balance": "1800.00",
+        })
+
+        rows = response.context["rows"]
+        self.assertEqual(len(rows), 2)
+        self.assertIn(f"Purchase #{purchase.pk} (Bank)", rows[0]["description"])
+        self.assertEqual(rows[0]["money_out"], "1,000.00")
+        self.assertIn(f"Sale #{sale.pk} (Bank)", rows[1]["description"])
+        self.assertEqual(rows[1]["money_in"], "1,500.00")
+        self.assertEqual(response.context["ending_balance"], "1,800.00")
+        self.assertTrue(response.context["is_matched"])
+
+    def test_account_selector_and_reversed_dates_are_controlled(self):
+        create_entry(timezone.localdate(), "Other payment deposit", [
+            ("1025", Decimal("75.00"), Decimal("0.00")),
+            ("3010", Decimal("0.00"), Decimal("75.00")),
+        ])
+        today = timezone.localdate().isoformat()
+        response = self.client.get(reverse("accounting:bank_movement"), {
+            "account": "1025",
+            "from": today,
+            "to": today,
+            "actual_balance": "75.00",
+        })
+        self.assertEqual(response.context["account"].code, "1025")
+        self.assertEqual(response.context["ending_balance"], "75.00")
+        self.assertTrue(response.context["is_matched"])
+
+        reversed_dates = self.client.get(reverse("accounting:bank_movement"), {
+            "from": "2026-07-31",
+            "to": "2026-07-01",
+        })
+        self.assertEqual(reversed_dates.context["date_from"], "2026-07-01")
+        self.assertEqual(reversed_dates.context["date_to"], "2026-07-31")
+
+
 class GoldMovementReportTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(

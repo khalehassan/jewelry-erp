@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Bank Account Movement — Jewelry ERP{% endblock %}
+
+{% block head %}
+<style>
+    .filters { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; }
+    .filters label { margin:0 0 4px; }
+    .filters .field { display:flex; flex-direction:column; }
+    .filters select, .filters input { min-width:170px; }
+    .summary-grid { display:grid; grid-template-columns:repeat(4,minmax(145px,1fr)); gap:12px; margin-top:20px; }
+    .summary-card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px; }
+    .summary-card .label { color:var(--muted); font-size:12px; text-transform:uppercase; }
+    .summary-card .amount { font-size:21px; font-weight:800; margin-top:4px; }
+    .positive { color:var(--good); }
+    .negative { color:#b13a32; }
+    .reconcile { border:2px solid var(--line); border-radius:10px; margin-top:20px; padding:16px; }
+    .reconcile.matched { border-color:var(--good-line); background:var(--good-bg); }
+    .reconcile.difference { border-color:#b13a32; background:#fbe9e7; }
+    .reconcile-grid { display:grid; grid-template-columns:repeat(3,minmax(150px,1fr)); gap:12px; margin-top:10px; }
+    .movement-wrap { overflow-x:auto; }
+    table.movement { width:100%; border-collapse:collapse; min-width:780px; }
+    table.movement th { color:var(--muted); font-size:11px; padding:8px; text-align:left; text-transform:uppercase; border-bottom:1px solid var(--line); }
+    table.movement th.num, table.movement td.num { text-align:right; }
+    table.movement td { border-bottom:1px solid var(--line); padding:9px 8px; }
+    table.movement tr:last-child td { border-bottom:none; }
+    .error { color:#b13a32; font-size:13px; font-weight:700; margin-top:4px; }
+    @media (prefers-color-scheme: dark) { .reconcile.difference { background:#3d1a1a; } }
+    @media (max-width:720px) {
+        .summary-grid, .reconcile-grid { grid-template-columns:1fr 1fr; }
+    }
+    @media print {
+        .topbar, .filters, .actions, .msg { display:none !important; }
+        .page { max-width:none; padding:0; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="head-row">
+    <div>
+        <h1 style="margin-bottom:2px;">Bank Account Movement &amp; Reconciliation</h1>
+        <div class="sub">Match the ledger ending balance with the actual bank-statement balance.</div>
+    </div>
+    <div class="actions">
+        <button class="btn ghost" type="button" onclick="window.print()">Print</button>
+        <a class="btn ghost" href="{% url 'accounting:reports' %}">← All reports</a>
+    </div>
+</div>
+
+<form method="get" class="card filters" style="margin-top:20px;">
+    <div class="field">
+        <label for="account">Bank account</label>
+        <select id="account" name="account">
+            {% for option in bank_accounts %}
+            <option value="{{ option.code }}" {% if option.pk == account.pk %}selected{% endif %}>{{ option.code }} — {{ option.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="field">
+        <label for="from">From</label>
+        <input type="date" id="from" name="from" value="{{ date_from }}">
+    </div>
+    <div class="field">
+        <label for="to">To</label>
+        <input type="date" id="to" name="to" value="{{ date_to }}">
+    </div>
+    <div class="field">
+        <label for="actual_balance">Actual bank ending balance (EGP)</label>
+        <input type="number" id="actual_balance" name="actual_balance" value="{{ actual_input }}" step="0.01" placeholder="Bank statement balance">
+        {% if actual_error %}<div class="error">{{ actual_error }}</div>{% endif %}
+    </div>
+    <button type="submit" class="btn">Reconcile</button>
+</form>
+
+<div class="summary-grid">
+    <div class="summary-card"><div class="label">Opening balance</div><div class="amount">{{ opening_balance }} EGP</div></div>
+    <div class="summary-card"><div class="label">Money in</div><div class="amount positive">{{ money_in_total }} EGP</div></div>
+    <div class="summary-card"><div class="label">Money out</div><div class="amount negative">{{ money_out_total }} EGP</div></div>
+    <div class="summary-card"><div class="label">Ledger ending balance</div><div class="amount {{ ending_class }}">{{ ending_balance }} EGP</div></div>
+</div>
+
+{% if has_actual_balance %}
+<div class="reconcile {% if is_matched %}matched{% else %}difference{% endif %}">
+    <div style="font-size:18px; font-weight:800;">
+        {% if is_matched %}✓ Bank balance matched{% else %}⚠ Bank balance does not match{% endif %}
+    </div>
+    <div class="reconcile-grid">
+        <div><div class="sub">Ledger ending balance</div><strong>{{ ending_balance }} EGP</strong></div>
+        <div><div class="sub">Actual bank ending balance</div><strong>{{ actual_balance }} EGP</strong></div>
+        <div><div class="sub">Difference (actual − ledger)</div><strong class="{% if is_matched %}positive{% else %}negative{% endif %}">{{ difference }} EGP</strong></div>
+    </div>
+</div>
+{% else %}
+<div class="reconcile">
+    <strong>Enter the ending balance from the bank statement above to complete the reconciliation.</strong>
+</div>
+{% endif %}
+
+<div class="card movement-wrap" style="margin-top:20px;">
+    <div class="head-row" style="margin-bottom:10px;">
+        <div><h2 style="margin-bottom:2px;">{{ account.code }} — {{ account.name }}</h2><div class="sub">Posted journal transactions from {{ date_from }} to {{ date_to }}</div></div>
+    </div>
+    <table class="movement">
+        <thead>
+            <tr><th>Date</th><th>Reference</th><th>Description</th><th class="num">Money in</th><th class="num">Money out</th><th class="num">Running balance</th></tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.date|date:"Y-m-d" }}</td>
+                <td>Entry #{{ row.entry_id }}</td>
+                <td>{{ row.description }}</td>
+                <td class="num positive">{{ row.money_in }}</td>
+                <td class="num negative">{{ row.money_out }}</td>
+                <td class="num {{ row.running_class }}">{{ row.running_balance }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="sub">No bank movements in this period.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p class="sub" style="margin-top:14px;">Ledger ending balance = opening balance + money in − money out. This report uses posted journal entries only.</p>
+{% endblock %}
